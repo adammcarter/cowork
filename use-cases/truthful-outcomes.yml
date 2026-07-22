@@ -1,0 +1,241 @@
+schema_version: 1
+# These rows ARE the product. Cowork's purpose is truthful dispatch (ADR 000),
+# so a row here failing is not a cosmetic defect — it is the thing itself
+# failing. Each pins a rule that does not bend.
+#
+# Rows whose provider must declare a specific thing on demand use a controlled
+# stub provider served over real HTTP: waiting for a hosted account's balance to
+# run out is not a test strategy. The binary, the socket, the config resolution
+# and the agent loop are all real; only the provider's declaration is staged.
+# Rows that CAN run against a real provider do.
+feature:
+  id: truth
+  name: The worker's declared outcome is the verdict
+  summary: >-
+    Exit codes and HTTP status are diagnostics, never the verdict. A provider's
+    own error text is its diagnosis. Capabilities are facts, never comfort.
+    Cowork reports what happened; grading belongs to the caller.
+metadata:
+  owner: cowork
+  lifecycle: active
+
+use_cases:
+  - id: truth.endpoint.truncated_200_is_failed
+    title: HTTP 200 with a truncated answer is a failure, because the worker said so
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: common
+    tags: [adr-000, truthfulness, endpoint]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Verdict.swift
+    actor: An orchestrating agent
+    intent: Never be handed half an answer as though it were a whole one.
+    preconditions:
+      - A provider that declares a length-limited completion on an otherwise successful response.
+    trigger: The caller dispatches and the provider returns 200 with finish_reason of length.
+    scenarios:
+      - id: truth.endpoint.truncated_200_is_failed.main
+        kind: steps
+        steps:
+          - Configure a provider that returns HTTP 200, real content, and finish_reason of length.
+          - Dispatch and wait for a terminal state.
+    observable_outcomes:
+      - The dispatch is `failed`, not `succeeded`. HTTP 200 is this backend's equivalent of "the process exited 0" — a diagnostic, not the verdict.
+      - The diagnostics name the truncation and the finish_reason that caused it.
+      - The partial content is still preserved and returned, because it is reported rather than discarded.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: truth.endpoint.unknown_finish_reason_is_not_a_success
+    title: An unfamiliar declaration is never guessed into a success
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: occasional
+    tags: [adr-000, truthfulness, endpoint]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Verdict.swift
+    actor: An orchestrating agent
+    intent: Not be told "fine" about something cowork does not understand.
+    preconditions:
+      - A provider that declares a finish_reason cowork has never seen.
+    trigger: The caller dispatches and the provider returns an unknown finish_reason.
+    scenarios:
+      - id: truth.endpoint.unknown_finish_reason_is_not_a_success.main
+        kind: steps
+        steps:
+          - Configure a provider that returns 200 with an unrecognised finish_reason.
+          - Dispatch and read the diagnostics.
+    observable_outcomes:
+      - The dispatch fails rather than being assumed fine. Guessing "probably fine" is how a wrong answer becomes a reported one.
+      - The unrecognised reason is named in the diagnostics rather than swallowed.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: truth.endpoint.provider_error_text_survives
+    title: A provider's own error text and code survive, because that is the actionable part
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: common
+    tags: [adr-000, truthfulness, diagnostics]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/EndpointBackend.swift
+    actor: A user debugging a failed dispatch
+    intent: Learn what actually went wrong, in the provider's own words.
+    preconditions:
+      - A provider that answers with an HTTP error and a structured error body.
+    trigger: The caller dispatches and the provider rejects the request with a message.
+    scenarios:
+      - id: truth.endpoint.provider_error_text_survives.main
+        kind: steps
+        steps:
+          - Configure a provider that returns 429 with a real provider error body.
+          - Dispatch and read the diagnostics.
+    observable_outcomes:
+      - The provider's own message survives into the diagnostics verbatim.
+      - The provider's own code survives beside it.
+      - An "Insufficient balance" message is actionable and a bare "429" is not. Reducing a provider's diagnosis to a status code throws away the only part a caller can act on, and can actively mislead — the message may be true while the real fault is a wrong endpoint.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: truth.cli.declared_error_with_exit_zero_is_failed
+    title: An agent that exits 0 having declared an error is failed
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: common
+    tags: [adr-000, truthfulness, cli]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Verdict.swift
+    actor: An orchestrating agent
+    intent: Not be told a dispatch succeeded because the process happened to exit cleanly.
+    preconditions:
+      - A CLI agent that declares subtype success and is_error true, and exits 0. This really happens — Claude Code does it when it is not logged in.
+    trigger: The caller dispatches to that agent.
+    scenarios:
+      - id: truth.cli.declared_error_with_exit_zero_is_failed.main
+        kind: steps
+        steps:
+          - Configure a CLI backend that declares an error while exiting 0.
+          - Dispatch and read the state and diagnostics.
+    observable_outcomes:
+      - The dispatch is `failed`. Terminal state derives from what the worker said about itself; process exit is a diagnostic.
+      - The disagreement between declaration and exit code is recorded rather than resolved in the transport's favour.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: truth.capabilities.auth_rejected_is_distinct_from_generic_http
+    title: A rejected credential is its own fact, not a generic HTTP failure
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: common
+    tags: [adr-001, truthfulness, security]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/EndpointBackend.swift
+    actor: A user whose key is wrong or expired
+    intent: Be told the key is the problem, rather than being handed a status code.
+    preconditions:
+      - A real hosted provider is reachable, and the credential presented to it is invalid.
+    trigger: The caller dispatches with a bad key.
+    scenarios:
+      - id: truth.capabilities.auth_rejected_is_distinct_from_generic_http.main
+        kind: steps
+        steps:
+          - Present a deliberately invalid key to a real hosted provider.
+          - Dispatch and read the diagnostics.
+    observable_outcomes:
+      - The failure is reported as auth-rejected, distinct from a generic HTTP failure.
+      - The provider's own rejection message survives alongside it.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: truth.capabilities.unreachable_is_distinct_from_timeout
+    title: Unreachable and slow are different truths, and are never flattened into one
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: common
+    tags: [adr-001, truthfulness, diagnostics]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/EndpointBackend.swift
+    actor: A user diagnosing a dispatch that did not work
+    intent: Tell "nothing is listening" apart from "it is thinking".
+    preconditions:
+      - One endpoint with a closed port, and one endpoint that listens but answers slowly.
+    trigger: The caller dispatches to each.
+    scenarios:
+      - id: truth.capabilities.unreachable_is_distinct_from_timeout.main
+        kind: steps
+        steps:
+          - Dispatch to a provider whose port is closed.
+          - Probe a provider that listens but is slow.
+          - Compare the diagnostics.
+    observable_outcomes:
+      - A closed port is reported as unreachable, with the underlying code, rather than hanging or guessing.
+      - A slow-but-listening endpoint is never reported unreachable. Latency is enormous and real — the same request spans seconds to minutes across models — and a deadline that is too short reports a timeout truthfully while still being the wrong answer.
+      - Timeout is not unreachable. Rule 3 exists for exactly this.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none

@@ -1,0 +1,539 @@
+schema_version: 1
+# ADR 001: the tool list is cowork's public contract — ten tools and one
+# attributed event stream. Nothing else is promised. The contract is not kept
+# until all ten exist and each is exercised against a real backend.
+feature:
+  id: contract
+  name: The public contract — ten tools and one attributed event stream
+  summary: >-
+    Callers depend on ten tools, not on a protocol, a daemon, or a client
+    library. Each row here is exercised over real stdio MCP against the built
+    binary, because a tool that is wired but never driven is exactly the state
+    ADR 001 was written to prevent.
+metadata:
+  owner: cowork
+  lifecycle: active
+
+use_cases:
+  - id: contract.tools.ten_tools_exposed
+    title: All ten contract tools are exposed, and nothing else is promised
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-001, contract]
+    source_refs:
+      - kind: file
+        path: Sources/cowork/main.swift
+    actor: A host CLI
+    intent: Discover what cowork promises, and depend on exactly that.
+    preconditions:
+      - The cowork binary is built.
+    trigger: The host performs an MCP `tools/list`.
+    scenarios:
+      - id: contract.tools.ten_tools_exposed.main
+        kind: steps
+        steps:
+          - Handshake with the cowork MCP server over stdio.
+          - Call `tools/list`.
+          - Compare the names against ADR 001's table.
+    observable_outcomes:
+      - Exactly dispatch, send, finish, follow_up, status, output, wait, cancel, list and capabilities are offered.
+      - A tool absent from the contract is absent from the surface.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: contract.tools.dispatch_returns_id_while_work_runs_elsewhere
+    title: dispatch returns an opaque id immediately; the work runs in its own process
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-001, adr-003]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Dispatcher.swift
+    actor: An orchestrating agent
+    intent: Fire off work and keep going, rather than blocking on a result.
+    preconditions:
+      - A reachable endpoint provider is configured.
+    trigger: The caller calls `dispatch` with a long-running task.
+    scenarios:
+      - id: contract.tools.dispatch_returns_id_while_work_runs_elsewhere.main
+        kind: steps
+        steps:
+          - Dispatch a task that takes far longer than the call itself.
+          - Observe that an id is returned in under a second.
+          - Observe that the dispatch is still queued or running afterwards.
+    observable_outcomes:
+      - An opaque `j_` id is returned promptly; ids are minted by cowork and callers never supply them.
+      - The work is genuinely elsewhere — the dispatch is still in flight when the call returns.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: contract.tools.status_and_output_report_declared_result
+    title: status reports the lifecycle state; output returns the worker's declared result
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-001]
+    source_refs:
+      - kind: file
+        path: Sources/cowork/main.swift
+    actor: An orchestrating agent
+    intent: Collect what the worker actually said.
+    preconditions:
+      - A reachable endpoint provider is configured.
+    trigger: The caller polls `status` and then reads `output`.
+    scenarios:
+      - id: contract.tools.status_and_output_report_declared_result.main
+        kind: steps
+        steps:
+          - Dispatch a task with a verbatim expected answer.
+          - Wait for the dispatch to reach a terminal state.
+          - Read `status` and `output`.
+    observable_outcomes:
+      - status reports `succeeded`.
+      - output is the worker's own declared result, not a summary cowork invented.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: contract.tools.wait_is_hard_capped_and_returns_still_running
+    title: wait is hard-capped and reports "still running" rather than blocking forever
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: common
+    tags: [adr-001]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Dispatcher.swift
+    actor: An orchestrating agent
+    intent: Bound how long it will wait, without losing the dispatch.
+    preconditions:
+      - A dispatch is running and will not finish within the wait budget.
+    trigger: The caller calls `wait` with a short timeout.
+    scenarios:
+      - id: contract.tools.wait_is_hard_capped_and_returns_still_running.main
+        kind: steps
+        steps:
+          - Dispatch a long task.
+          - Call `wait` with a 3 second timeout.
+          - Observe the call return at the cap with the state.
+    observable_outcomes:
+      - wait returns at its cap, never blocking indefinitely.
+      - The state `running` is returned as a real answer — a caller can tell in-flight work from a result.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: contract.tools.cancel_stops_a_running_dispatch
+    title: cancel stops a dispatch, its worker, and says so on the stream
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-001, adr-003]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Dispatcher.swift
+    actor: An orchestrating agent
+    intent: Stop work that is no longer wanted, and know it really stopped.
+    preconditions:
+      - A dispatch is running.
+    trigger: The caller calls `cancel`.
+    scenarios:
+      - id: contract.tools.cancel_stops_a_running_dispatch.main
+        kind: steps
+        steps:
+          - Dispatch a long task and let it reach `running`.
+          - Call `cancel`.
+          - Inspect the state, the event stream, and the process table.
+    observable_outcomes:
+      - The dispatch reports `cancelled`.
+      - A `cancelled` event reaches the stream — the terminal event is never skipped.
+      - No supervisor process survives the cancel.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: contract.tools.list_scopes_to_lineage_and_refuses_unknown_scope
+    title: list is scoped to the caller's own lineage, and an unhonourable scope is refused
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: common
+    tags: [adr-001]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/List.swift
+    actor: An orchestrating agent
+    intent: See its own work, and only its own, unless it asks otherwise.
+    preconditions:
+      - At least one dispatch exists.
+    trigger: The caller calls `list`, `list(all)`, and `list` with a nonsense scope.
+    scenarios:
+      - id: contract.tools.list_scopes_to_lineage_and_refuses_unknown_scope.main
+        kind: steps
+        steps:
+          - Dispatch a task and let it finish.
+          - Call `list` with no scope, then with `all`, then with an unknown scope.
+    observable_outcomes:
+      - The default scope shows the caller's own lineage with parent and root attribution.
+      - "`all` shows everything on the machine."
+      - An unknown scope is refused rather than silently becoming a different scope — a caller is never shown someone else's work, nor silently denied their own.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: contract.tools.capabilities_probe_live_models
+    title: capabilities probes the provider and reports the models that are really there
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-001, adr-005]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Capabilities.swift
+    actor: An orchestrating agent
+    intent: Find out what can actually be dispatched to, right now.
+    preconditions:
+      - The oMLX host is up and serving models.
+    trigger: The caller asks for the capabilities of a configured provider.
+    scenarios:
+      - id: contract.tools.capabilities_probe_live_models.main
+        kind: steps
+        steps:
+          - Call `capabilities` for a configured provider.
+          - Compare the reported model ids against the config file.
+    observable_outcomes:
+      - One dispatchable `provider/model` id is reported per served model.
+      - No model is named in the config — the list is probed, so a newly loaded model is dispatchable with no config change.
+      - Availability is a live fact rather than a stored one.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: contract.tools.follow_up_carries_context
+    title: follow_up starts a new dispatch carrying a finished dispatch's context
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-001]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/FollowUp.swift
+    actor: An orchestrating agent
+    intent: Continue a finished dispatch without losing what it learned.
+    preconditions:
+      - The claude CLI backend is configured and logged in.
+    trigger: The caller calls `follow_up` on a finished dispatch.
+    scenarios:
+      - id: contract.tools.follow_up_carries_context.main
+        kind: steps
+        steps:
+          - Dispatch a task that establishes a fact known only to that worker.
+          - After it succeeds, `follow_up` asking for that fact back.
+    observable_outcomes:
+      - A new dispatch id is returned; backend and workspace are inherited rather than re-supplied.
+      - The new worker recalls the first dispatch's context, proving the context really carried.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: contract.tools.follow_up_refused_when_no_continuation
+    title: a backend that cannot follow up says so, rather than starting fresh and pretending
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: occasional
+    tags: [adr-001, truthfulness]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/FollowUp.swift
+    actor: An orchestrating agent
+    intent: Learn that context cannot be carried, instead of silently losing it.
+    preconditions:
+      - An endpoint dispatch has finished. Cowork owns the message list, so there is no continuation handle.
+    trigger: The caller calls `follow_up` on it.
+    scenarios:
+      - id: contract.tools.follow_up_refused_when_no_continuation.main
+        kind: steps
+        steps:
+          - Dispatch to an endpoint backend and let it finish.
+          - Call `follow_up` on that dispatch.
+    observable_outcomes:
+      - The call is refused with a diagnostic naming the reason.
+      - Cowork does not start a fresh dispatch and call it a follow-up — that would forget everything the worker knew while reporting continuity.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: contract.tools.interactive_parks_in_awaiting_input
+    title: an interactive dispatch declares its turn and parks in awaiting_input
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-001, interactive, unverified]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/InteractiveSession.swift
+      - kind: file
+        path: Sources/cowork/SuperviseMode.swift
+    actor: An orchestrating agent
+    intent: Keep a worker warm so it can be given a pivot or one extra detail.
+    preconditions:
+      - The claude CLI backend is configured, and `capabilities` reports supports_message true for it.
+    trigger: The caller dispatches with the interactive flag set.
+    scenarios:
+      - id: contract.tools.interactive_parks_in_awaiting_input.main
+        kind: steps
+        steps:
+          - "Dispatch with `interactive: true`."
+          - Observe the record and the mailbox.
+          - Watch the lifecycle state after the worker declares its first turn.
+    observable_outcomes:
+      - "ADR 001 rule 2 — a turn ending is not a dispatch ending — holds: the worker declares its turn's outcome and stays alive."
+      - The dispatch reaches `awaiting_input`, which is a real state and not a variant of success.
+      - The dispatch ends only on `finish`, an idle timeout, or worker exit.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: contract.tools.send_messages_a_live_worker
+    title: send delivers a message to a live worker and gets a second declared turn
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-001, interactive, unverified]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Interaction.swift
+      - kind: file
+        path: Sources/CoworkCore/Mailbox.swift
+    actor: An orchestrating agent
+    intent: Give a running worker a pivot or one extra detail without losing its context.
+    preconditions:
+      - An interactive dispatch is alive and awaiting input.
+    trigger: The caller calls `send`.
+    scenarios:
+      - id: contract.tools.send_messages_a_live_worker.main
+        kind: steps
+        steps:
+          - Dispatch interactively and let the worker declare its first turn.
+          - Send a second message naming a different verbatim answer.
+          - Read the output.
+    observable_outcomes:
+      - The message reaches the live worker; `send` closes the gap where a pivot otherwise forces a stop-and-restart that discards the worker's context.
+      - The worker answers the second message, producing its own declared result for that turn.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: contract.tools.finish_ends_an_interactive_dispatch
+    title: finish ends an interactive dispatch and releases its warm worker
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-001, interactive, unverified]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Interaction.swift
+    actor: An orchestrating agent
+    intent: Release a warm worker, and thereby stop paying for it.
+    preconditions:
+      - An interactive dispatch is alive in `awaiting_input`.
+    trigger: The caller calls `finish`.
+    scenarios:
+      - id: contract.tools.finish_ends_an_interactive_dispatch.main
+        kind: steps
+        steps:
+          - Dispatch interactively and let the worker park in `awaiting_input`.
+          - Call `finish`.
+          - Inspect the process table.
+    observable_outcomes:
+      - The dispatch reaches a terminal state.
+      - The warm worker and its supervisor are released — an interactive dispatch holds a live process by design, and `finish` is what bounds the cost.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: contract.events.every_event_carries_parent_and_root
+    title: every event is attributed with parent and root, and stays under PIPE_BUF
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-001, adr-003, events]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Events.swift
+    actor: A monitor, a panel, or a shell one-liner
+    intent: Watch dispatches and filter to one lineage in a single pass over one line.
+    preconditions:
+      - A dispatch has run.
+    trigger: The consumer tails the event stream.
+    scenarios:
+      - id: contract.events.every_event_carries_parent_and_root.main
+        kind: steps
+        steps:
+          - Dispatch a task and let it finish.
+          - Read every event for that dispatch off the append-only stream.
+          - Check the fields and the line size.
+    observable_outcomes:
+      - Every event carries v, ts, id, parent, root, backend and event.
+      - "`parent` answers \"who fired this one\" and `root` answers \"whose work is this\", so a consumer never accumulates the tree in memory."
+      - Every line stays under PIPE_BUF (4096 bytes), which is what makes concurrent appends atomic with no lock.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: contract.workspace.unconfined_is_recorded_as_unconfined
+    title: an unconfined dispatch is recorded as unconfined, never silently defaulted
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: common
+    tags: [adr-001, workspace]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Dispatcher.swift
+    actor: A user auditing what authority a worker was given
+    intent: Tell, after the fact, whether a worker was confined to a directory.
+    preconditions:
+      - None.
+    trigger: A dispatch is fired with, and without, a workspace grant.
+    scenarios:
+      - id: contract.workspace.unconfined_is_recorded_as_unconfined.main
+        kind: steps
+        steps:
+          - Dispatch with no workspace, and inspect its queued event.
+          - Dispatch with a workspace, and inspect its queued event.
+    observable_outcomes:
+      - An absent workspace means unconfined — a legitimate explicit choice, since a model asked to summarise text touches no repository.
+      - "It is never a silent default: the unconfined dispatch is recorded as unconfined in the event stream."
+      - A confined dispatch records its grant instead.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none

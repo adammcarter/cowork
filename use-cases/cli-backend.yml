@@ -1,0 +1,92 @@
+schema_version: 1
+# The CLI family: the agent owns its own loop and tools. Cowork does not drive it
+# turn by turn — it launches it, observes what it declares, and contains it.
+# This is the family where ADR 003 stops being theory, because cowork is
+# supervising somebody else's process.
+feature:
+  id: cli
+  name: CLI backends — the agent owns its own loop
+  summary: >-
+    An installed autonomous agent, launched under a sanitized environment, its
+    own process group, and hard kernel resource limits it cannot raise; its
+    verdict read from what it declared rather than from how it exited.
+metadata:
+  owner: cowork
+  lifecycle: active
+
+use_cases:
+  - id: cli.claude.dispatch_is_contained_and_collected
+    title: A real Claude worker is dispatched, contained, and collected with no orphans
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-003, cli, claude]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/CliAgent.swift
+    actor: An orchestrating agent
+    intent: Delegate real work to an installed coding agent and collect its result.
+    preconditions:
+      - The claude CLI is installed, configured, and logged in.
+    trigger: The caller dispatches to the claude backend.
+    scenarios:
+      - id: cli.claude.dispatch_is_contained_and_collected.main
+        kind: steps
+        steps:
+          - Dispatch a task with a verbatim expected answer.
+          - Wait for a terminal state, read the output and the events.
+          - Inspect the process table for survivors.
+    observable_outcomes:
+      - The worker runs under a sanitized environment allowlist and still reaches its own credentials — a stripped environment breaks the agent's auth, so the allowlist is minimal but not empty.
+      - The dispatch succeeds and the agent's declared result is collected.
+      - The dispatch reaches a terminal event and no supervisor or worker survives it.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: cli.codex.dispatch_is_contained_and_collected
+    title: A real Codex worker is dispatched, observed, cancelled, and attributed
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-001, cli, codex, blocked, unverified]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/CliAgent.swift
+    actor: An orchestrating agent
+    intent: Delegate to Codex on the same contract as any other backend.
+    preconditions:
+      - A Codex account that is not rate-limited.
+      - A Codex CLI driver built on `codex mcp-server`, which exposes codex and codex-reply. The one-shot `codex exec` mode cannot be messaged and is the wrong foundation.
+    trigger: The caller dispatches to a codex backend.
+    scenarios:
+      - id: cli.codex.dispatch_is_contained_and_collected.main
+        kind: steps
+        steps:
+          - Dispatch a task to the codex backend.
+          - Observe it running, then cancel it.
+          - Collect an attributable result.
+    observable_outcomes:
+      - A real Codex worker starts, is observed, is cancelled, and returns an attributable result.
+      - supports_message reports the truth for whichever mode is used, rather than an assumption.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none

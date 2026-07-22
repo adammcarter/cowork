@@ -1,0 +1,61 @@
+schema_version: 1
+# ADR 002: roles are the sugar layer — a role is a FILE (template + declared
+# slots) that surfaces as its own role_* tool on top of the 10 core tools
+# (ADR 001, amended 2026-07-22). Slots are hard edges, the composed task is
+# inspectable, and deleting every role leaves exactly the 10-core contract.
+feature:
+  id: sugar.roles
+  name: Roles as data — one additive role_* tool per role file
+  summary: >-
+    A user changes how their helpers behave by editing a file and shipping
+    nothing. Discovery is layered (shipped, global, project) in one namespace
+    where most-specific wins, and the composed task a role builds is the
+    dispatch record's task — observable, never hidden.
+metadata:
+  owner: cowork
+  lifecycle: active
+
+use_cases:
+  - id: sugar.roles.role_tool_composes_and_dispatches
+    title: A project role file becomes a role_* tool whose composed task dispatches inspectably
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-002, roles, sugar]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Role.swift
+    actor: An orchestrating agent
+    intent: >-
+      Use an opinionated helper by calling its named tool with its declared
+      slots, without re-deriving the prompt, and see exactly what was sent.
+    preconditions:
+      - A reachable backend is configured.
+      - A .role file exists in the project's .cowork/roles directory.
+    trigger: The caller invokes the role_* tool with its declared slots.
+    scenarios:
+      - id: sugar.roles.role_tool_composes_and_dispatches.main
+        kind: steps
+        steps:
+          - Drop a .role file into the project's .cowork/roles.
+          - Observe its role_* tool in tools/list beside the intact 10 core tools.
+          - Call it with a missing slot and observe the named refusal.
+          - Call it with every declared slot and wait for the dispatch to finish.
+          - Read the dispatch record's task and compare it to the composed template.
+    observable_outcomes:
+      - The role appears as its own named tool; the 10 core tools are unchanged.
+      - A missing slot is refused by name — slots are hard edges, not suggestions.
+      - The dispatch record's task IS the composed template, so the prompt a role
+        built is inspectable rather than hidden (ADR 002 rule 6).
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none

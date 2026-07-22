@@ -1,0 +1,11 @@
+.build/
+.swiftpm/
+.env
+.claude/
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+
+# uc tool local verification state (regenerated via uc bind/verify)
+.use-cases/

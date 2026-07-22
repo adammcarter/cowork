@@ -1,0 +1,279 @@
+schema_version: 1
+# ADR 003 (no daemon, no orphans, every dispatch reaches a terminal event) and
+# ADR 005 (only the global config may name a credential; profiles compose and
+# mask). These are safety properties, not conveniences.
+feature:
+  id: containment
+  name: Containment and config trust
+  summary: >-
+    A worker never outlives its orchestrator; silence is the one forbidden
+    outcome; the record precedes the process; a failure keeps the evidence it
+    exists to provide; and a project config that arrived with a clone is
+    untrusted input.
+metadata:
+  owner: cowork
+  lifecycle: active
+
+use_cases:
+  - id: containment.no_orphan_survives_orchestrator_sigkill
+    title: No worker outlives its orchestrator, even when the orchestrator is SIGKILLed
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: common
+    tags: [adr-003, containment, safety]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Supervisor.swift
+    actor: A user closing their host CLI
+    intent: Never leave an agent editing a workspace unattended with nobody to collect it.
+    preconditions:
+      - A dispatch is running under an orchestrator.
+    trigger: The orchestrator dies by SIGKILL, which it cannot handle or clean up after.
+    scenarios:
+      - id: containment.no_orphan_survives_orchestrator_sigkill.main
+        kind: steps
+        steps:
+          - Dispatch a long task and let it reach running.
+          - SIGKILL the orchestrating process.
+          - Inspect the process table for survivors.
+    observable_outcomes:
+      - Every supervisor and worker dies with the orchestrator. This is kernel-enforced by the death pipe — the OS closes the descriptors, the supervisor reads EOF, and needs no cooperation from the dying process.
+      - A running agent with nobody left to collect its result is a liability, not a feature — it burns budget and can still mutate a workspace.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: containment.every_dispatch_reaches_a_terminal_event
+    title: Every dispatch reaches a terminal event — silence is the one forbidden outcome
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: common
+    tags: [adr-003, truthfulness, events]
+    source_refs:
+      - kind: file
+        path: Sources/cowork/Reconcile.swift
+    actor: A caller or a monitor watching the stream
+    intent: Never be unable to tell a dead dispatch from work still in progress.
+    preconditions:
+      - A dispatch is running and its orchestrator is killed abruptly.
+    trigger: The orchestrator is SIGKILLed mid-dispatch, then cowork is invoked again.
+    scenarios:
+      - id: containment.every_dispatch_reaches_a_terminal_event.main
+        kind: steps
+        steps:
+          - Dispatch a long task and SIGKILL the orchestrator.
+          - Start any new cowork invocation.
+          - Read the dispatch's state and its events.
+    observable_outcomes:
+      - The dispatch reaches a terminal state and a terminal event, never silence.
+      - With no daemon there is no background sweeper, so any invocation reconciles — the stream is eventually truthful rather than instantly so.
+      - The reconciled state is cancelled rather than failed, because under the no-orphans rule an owner's death IS a cancellation by cowork's own design, and blaming the backend would be a small lie.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: containment.record_precedes_process
+    title: The record precedes the process, so nothing can run that was never written down
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: common
+    tags: [adr-003, safety]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Dispatcher.swift
+    actor: Cowork itself, reconciling after a crash
+    intent: Be able to find every worker it ever started, in flight or terminal.
+    preconditions:
+      - None.
+    trigger: A dispatch is started.
+    scenarios:
+      - id: containment.record_precedes_process.main
+        kind: steps
+        steps:
+          - Dispatch a task.
+          - Inspect the record on disk and the first event.
+    observable_outcomes:
+      - The record exists and the queued event is published before the process is spawned.
+      - Spawn-then-record leaves a window in which a crash leaks a running worker with no name that no reconciliation can recover. Write-ahead makes the record, not the process, the source of truth.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: containment.failed_dispatch_keeps_its_workspace
+    title: A failed dispatch keeps its workspace and its record
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: common
+    tags: [adr-003, evidence]
+    source_refs:
+      - kind: file
+        path: Sources/cowork/SuperviseMode.swift
+    actor: A user investigating a failure
+    intent: Inspect the state a failure left behind.
+    preconditions:
+      - A dispatch with a workspace grant that will fail.
+    trigger: The dispatch fails.
+    scenarios:
+      - id: containment.failed_dispatch_keeps_its_workspace.main
+        kind: steps
+        steps:
+          - Grant a workspace containing a file.
+          - Dispatch a task against a provider that will declare a failure.
+          - Inspect the workspace and the record afterwards.
+    observable_outcomes:
+      - The workspace and its artifacts survive the failure.
+      - The dispatch's record survives too.
+      - Unconditional cleanup destroys the evidence a failure exists to provide.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: config.hostile_project_credential_is_refused
+    title: A project config that names any credential at all is refused
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: common
+    tags: [adr-005, security, hostile-input]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Config.swift
+    actor: A user running an agent in a repo they cloned
+    intent: Not have a cloned repository take their API key.
+    preconditions:
+      - A project config, arriving with a clone, that declares a provider naming a credential the user really has.
+    trigger: Cowork starts in that project.
+    scenarios:
+      - id: config.hostile_project_credential_is_refused.main
+        kind: steps
+        steps:
+          - Place a project config declaring a provider at an attacker-chosen endpoint, naming a real credential.
+          - Start cowork in that directory.
+    observable_outcomes:
+      - Cowork refuses to start, with a diagnostic naming the provider and the reason.
+      - The refusal does not echo the credential's value.
+      - The weaker rule — that a project may reuse a credential the user declared globally — is worthless, and a hostile config proved it. The binding that matters is credential-to-provider, never the credential's name.
+      - This is the one place cowork prevents rather than reports. Prompt and code leakage is bad and observable; key leakage is worse and permanent.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: config.profiles_mask_hosted_providers
+    title: A project pinned to a local-only profile cannot reach a hosted provider
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-005, config, privacy]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Config.swift
+    actor: A user whose work must not leave the machine
+    intent: Guarantee that a project's inference stays local, by naming one profile.
+    preconditions:
+      - A global config declaring both local and hosted providers, and a local-only profile.
+      - A project config selecting that profile.
+    trigger: The caller dispatches to a hosted provider from that project.
+    scenarios:
+      - id: config.profiles_mask_hosted_providers.main
+        kind: steps
+        steps:
+          - Pin a project to the local-only profile.
+          - Attempt to dispatch to a hosted provider.
+          - Then dispatch to a provider inside the profile.
+    observable_outcomes:
+      - The hosted provider is refused and is not visible to that project at all — the mask applies to real dispatch, not merely to a listing.
+      - A provider inside the profile still works, so the mask is a boundary and not a blanket.
+      - Naming one profile is a real answer for work that must not leave the machine.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: config.project_provider_origin_is_reported
+    title: A project-defined provider is reported as project-origin, not hidden
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: occasional
+    tags: [adr-005, config, truthfulness]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Capabilities.swift
+    actor: A user who wants to know whose provider ran their work
+    intent: See that a provider came from the repo rather than from their own config.
+    preconditions:
+      - A project config declaring its own provider, naming no credential.
+    trigger: The caller asks for capabilities.
+    scenarios:
+      - id: config.project_provider_origin_is_reported.main
+        kind: steps
+        steps:
+          - Declare a provider in the project config.
+          - Ask for capabilities for it, and for a user-declared provider.
+          - Compare the reported origins.
+    observable_outcomes:
+      - The project's provider is reported with a project origin; the user's own is reported with a global origin.
+      - A project genuinely needs to add providers, so this is reported rather than prevented — the blast radius of a hostile project config is bounded at "it can see your prompt", never "it can take your keys".
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none

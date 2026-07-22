@@ -1,0 +1,24 @@
+schema_version: 1
+workspace_id: cowork
+component_id: cowork
+data_root: .
+use_cases_dir: use-cases
+evidence_dir: evidence
+demo_capsules_dir: demo-capsules
+showcase_runs_dir: showcase-runs
+default_workflow_mode: continuous
+
+# Every row's verifier is a PERFORMED JOURNEY against the built binary, driven
+# over real stdio MCP — the same surface a host CLI touches. Nothing here runs a
+# `swift test`, and that is deliberate: green unit tests do not prove the contract
+# works end-to-end, so each row performs the real behaviour against the real
+# binary rather than asserting it in isolation.
+#
+# `{slug}` is the row id. A row with no journey exits non-zero, so a row can
+# never pass by existing.
+verifiers:
+  default: journey
+  journey:
+    kind: script
+    evidence_kind: live_demo
+    command: ["bash", "use-cases/verifiers/run.sh", "{slug}"]

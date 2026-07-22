@@ -1,0 +1,316 @@
+schema_version: 1
+# The ENDPOINT family: cowork owns the agent loop and the model runs elsewhere.
+# ADR 001 and ADR 005. The claim under test is that provider identity, endpoint
+# location, and credential mechanism are independent concerns served by one code
+# path with zero provider-specific branches.
+feature:
+  id: endpoint
+  name: Endpoint backends — cowork owns the loop
+  summary: >-
+    Four providers, three URL layouts, two transports and both credential
+    mechanisms, through one code path. A provider is one configuration entry;
+    no endpoint is named in Swift. Each row is a real dispatch to a real
+    endpoint, because reachability is a live fact and a stored one is a lie.
+metadata:
+  owner: cowork
+  lifecycle: active
+
+use_cases:
+  - id: endpoint.omlx.local_http_key_dispatch_succeeds
+    title: A locally hosted model behind an API key is dispatchable
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-005, endpoint, omlx]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/EndpointBackend.swift
+    actor: An orchestrating agent
+    intent: Dispatch work to a model on the machine next door without it leaving the network.
+    preconditions:
+      - The oMLX host is reachable and serving the model.
+      - The provider is declared in the user's global config with a credential reference.
+    trigger: The caller dispatches to an oMLX backend id.
+    scenarios:
+      - id: endpoint.omlx.local_http_key_dispatch_succeeds.main
+        kind: steps
+        steps:
+          - Dispatch a task with a verbatim expected answer.
+          - Wait for a terminal state and read the output.
+    observable_outcomes:
+      - The dispatch succeeds and the model's declared answer is returned.
+      - Local and authenticated is an ordinary combination — authentication is a property of an endpoint's configuration, not of where it runs.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: endpoint.qwen.hosted_https_key_dispatch_succeeds
+    title: A hosted provider over HTTPS on a non-standard URL layout is dispatchable
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-005, endpoint, qwen]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/EndpointBackend.swift
+    actor: An orchestrating agent
+    intent: Dispatch to a hosted frontier model through the same path as a local one.
+    preconditions:
+      - The hosted Qwen endpoint is reachable and the credential is present.
+    trigger: The caller dispatches to a qwen backend id.
+    scenarios:
+      - id: endpoint.qwen.hosted_https_key_dispatch_succeeds.main
+        kind: steps
+        steps:
+          - Dispatch a task with a verbatim expected answer.
+          - Wait for a terminal state and read the output.
+    observable_outcomes:
+      - The dispatch succeeds through the same loop and the same tools as a local model.
+      - The URL layout is configuration — Qwen serves a non-/v1 compatible-mode path, and hardcoding /v1 would silently exclude it while looking as though the provider were non-compliant.
+      - Adding a hosted provider over HTTPS with an API key required no new code.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: endpoint.ollama.lan_http_noauth_dispatch_succeeds
+    title: An unauthenticated LAN endpoint is dispatchable
+    lifecycle: active
+    value_tier: supporting
+    journey_role: golden
+    usage_frequency: occasional
+    tags: [adr-005, endpoint, ollama, unverified]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/EndpointBackend.swift
+    actor: An orchestrating agent
+    intent: Dispatch to a model on another machine on the LAN with no credential at all.
+    preconditions:
+      - The Ollama host on the LAN is reachable.
+    trigger: The caller dispatches to an Ollama backend id.
+    scenarios:
+      - id: endpoint.ollama.lan_http_noauth_dispatch_succeeds.main
+        kind: steps
+        steps:
+          - Probe the provider's live reachability.
+          - Dispatch a task and wait for a terminal state.
+    observable_outcomes:
+      - The dispatch succeeds with no credential configured, proving location and credentials are independent.
+      - The same loop serves it as serves an authenticated hosted provider.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: endpoint.nvidia.hosted_https_key_dispatch_succeeds
+    title: A second hosted provider is added by configuration alone
+    lifecycle: active
+    value_tier: supporting
+    journey_role: golden
+    usage_frequency: occasional
+    tags: [adr-005, endpoint, nvidia, unverified]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/EndpointBackend.swift
+    actor: A user adding a provider
+    intent: Reach a hosted 70B behind a bearer token without cowork changing.
+    preconditions:
+      - The NVIDIA provider is declared in the user's global config with a credential reference.
+    trigger: The caller dispatches to an NVIDIA backend id.
+    scenarios:
+      - id: endpoint.nvidia.hosted_https_key_dispatch_succeeds.main
+        kind: steps
+        steps:
+          - Dispatch a task and wait for a terminal state.
+    observable_outcomes:
+      - The dispatch succeeds with no new code path and no local-versus-hosted branch.
+      - A remote 70B behind a bearer token is the same shape as a 9B on the machine next to you.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: endpoint.tool_loop.model_uses_workspace_tools
+    title: The endpoint loop is a faithful client of the provider's own tool-call contract
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-001, endpoint, tools]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/EndpointBackend.swift
+      - kind: file
+        path: Sources/CoworkCore/Tools.swift
+    actor: An orchestrating agent
+    intent: Have a model actually do work in a directory, not merely talk about it.
+    preconditions:
+      - A reachable endpoint provider serving a tool-calling model.
+      - A workspace containing an input file.
+    trigger: The caller dispatches a task that can only be completed with tools.
+    scenarios:
+      - id: endpoint.tool_loop.model_uses_workspace_tools.main
+        kind: steps
+        steps:
+          - Grant a workspace holding an input file.
+          - Dispatch a task requiring the model to read it and write a result file.
+          - Wait for a terminal state and inspect the workspace.
+    observable_outcomes:
+      - The model's tool calls are executed and the result file really exists on disk.
+      - A tool-call turn is a continuation, not a terminal outcome — only the loop's own conclusion is terminal.
+      - Cowork reports what happened and does not grade the answer. A wrong-but-declared-complete answer is still reported as succeeded, because grading belongs to the caller.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: endpoint.provider_is_configuration_not_code
+    title: No endpoint is named in Swift — a provider is one configuration entry
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: rare
+    tags: [adr-005, config]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Config.swift
+    actor: A user adding a provider
+    intent: Add a provider without a code change and a release.
+    preconditions:
+      - Several providers are configured.
+    trigger: A reader greps the source for any endpoint.
+    scenarios:
+      - id: endpoint.provider_is_configuration_not_code.main
+        kind: steps
+        steps:
+          - Search every Swift source file for a URL, host, or port.
+          - Confirm the configured providers exist only as configuration.
+    observable_outcomes:
+      - No provider, URL, path, port or credential is named anywhere in Sources.
+      - Adding a provider is a config edit, not a code change and a release.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: endpoint.credential.absent_names_the_variable_never_a_value
+    title: A missing credential fails before the request, naming the variable and never a value
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: occasional
+    tags: [adr-001, adr-005, security]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Credential.swift
+    actor: A user who has not set their key
+    intent: Be told exactly what is missing, without the tool ever echoing a secret.
+    preconditions:
+      - A provider with a credential reference is configured, and the credential is not available.
+    trigger: The caller dispatches to that provider.
+    scenarios:
+      - id: endpoint.credential.absent_names_the_variable_never_a_value.main
+        kind: steps
+        steps:
+          - Remove the credential from the dispatch's reach.
+          - Dispatch and read the diagnostics.
+          - Audit the event stream and the record for the real key's value.
+    observable_outcomes:
+      - The dispatch fails before the request is sent, with a diagnostic naming the expected variable.
+      - The credential's value appears in no event, no record, and no diagnostic.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: endpoint.credential.env_reference_resolves_from_the_environment
+    title: A credential reference of the form env:NAME resolves from the environment
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-005, security, unverified]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Credential.swift
+      - kind: file
+        path: Sources/CoworkCore/Supervisor.swift
+    actor: A user who exports their key in their shell
+    intent: Configure a credential the way the config file says it is configured.
+    preconditions:
+      - A provider is configured with a credential reference naming an environment variable.
+      - That variable is exported in the environment cowork runs in.
+    trigger: The caller dispatches to that provider.
+    scenarios:
+      - id: endpoint.credential.env_reference_resolves_from_the_environment.main
+        kind: steps
+        steps:
+          - Export the named variable into cowork's own environment.
+          - Place no dotenv file anywhere near the working directory.
+          - Dispatch and wait for a terminal state.
+    observable_outcomes:
+      - The credential is resolved from the environment and the dispatch succeeds.
+      - A reference of the form env:NAME means the environment variable NAME — the config file's own documented meaning.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
