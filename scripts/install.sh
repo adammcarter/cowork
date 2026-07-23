@@ -11,13 +11,15 @@
 #                                         (uses .build/release/cowork)
 #   • point at any binary:                ./install.sh --binary /path/to/cowork
 #
-# Layout it writes (shipped roles sit beside the binary so cowork finds them by
-# walking up from argv[0]; the global override layer at ~/.cowork/roles stays
-# separate and untouched):
+# Layout it writes — flat, straight into cowork's home. The shipped roles land
+# at ~/.cowork/roles, which is ALSO the user's global role layer: the binary
+# reads one directory as one layer, and this installer MERGES into it (shipped
+# names are updated, roles the user added are never touched). Runtime state
+# (config.toml, jobs/) lives beside it and is never written by this script.
 #
-#   $COWORK_PREFIX/                 (default ~/.cowork/dist)
+#   $COWORK_PREFIX/                 (default ~/.cowork)
 #   ├── bin/cowork
-#   ├── roles/*.role
+#   ├── roles/*.role                (shipped ∪ yours — merged, never clobbered)
 #   ├── skills/…
 #   └── commands/…
 set -euo pipefail
@@ -29,7 +31,7 @@ skip()    { printf "%s[skip]%s %s\n" "$DIM" "$RESET" "$1"; }
 warn()    { printf "%s[warn]%s %s\n" "$YELLOW" "$RESET" "$1" >&2; }
 die()     { printf "%s[fail]%s %s\n" "$RED" "$RESET" "$1" >&2; exit 1; }
 
-PREFIX="${COWORK_PREFIX:-$HOME/.cowork/dist}"
+PREFIX="${COWORK_PREFIX:-$HOME/.cowork}"
 SRC=""            # directory holding bin/cowork + roles + skills
 BINARY_OVERRIDE=""
 
@@ -84,7 +86,10 @@ heading "Installing to $PREFIX"
 mkdir -p "$PREFIX/bin"
 cp "$SRC/bin/cowork" "$PREFIX/bin/cowork"
 chmod +x "$PREFIX/bin/cowork"
-rm -rf "$PREFIX/roles"; cp -R "$SRC/roles" "$PREFIX/roles"
+# Merge roles: overwrite shipped names, preserve any .role the user added.
+# (~/.cowork/roles doubles as the user's global layer in the flat layout.)
+mkdir -p "$PREFIX/roles"
+cp "$SRC/roles/"*.role "$PREFIX/roles/"
 [ -d "$SRC/skills" ]   && { rm -rf "$PREFIX/skills";   cp -R "$SRC/skills"   "$PREFIX/skills"; }
 [ -d "$SRC/commands" ] && { rm -rf "$PREFIX/commands"; cp -R "$SRC/commands" "$PREFIX/commands"; }
 
@@ -202,6 +207,7 @@ Verify a host picked it up:
   codex mcp list         | grep cowork
   opencode mcp list      | grep cowork
 
-The shipped roles/skills live beside the binary; your own overrides go in
-~/.cowork/roles (global) or <project>/.cowork/roles (per-project). See docs/install.md.
+Shipped roles live at ~/.cowork/roles — add your own .role files right there
+(reinstalls merge, never clobber) or per-project in <project>/.cowork/roles.
+See docs/install.md.
 EOF

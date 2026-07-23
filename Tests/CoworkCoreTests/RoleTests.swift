@@ -185,6 +185,25 @@ struct RoleTests {
         #expect(resolved.roles.allSatisfy { $0.overrides.isEmpty }, "nothing shadowed here")
     }
 
+    @Test("a flat install: global dir == shipped dir loads once, as shipped, no shadow noise")
+    func flatInstallUnifiesShippedAndGlobal() throws {
+        // The flat ~/.cowork layout puts the shipped roles AT the global layer's
+        // path. The same directory must not be read twice — that would list every
+        // shipped role as \"global shadowing shipped\", which is bookkeeping noise
+        // for an override that never happened.
+        let (shipped, _, project, _) = tempLayers()
+        try layer(["reviewer", "planner"], into: shipped, marker: "S")
+        try layer(["domain_expert"], into: project, marker: "P")
+
+        let resolved = RoleLibrary.resolve(shipped: shipped, global: shipped, project: project)
+        let byName = Dictionary(uniqueKeysWithValues: resolved.roles.map { ($0.role.name, $0) })
+        #expect(resolved.roles.count == 3)
+        #expect(byName["reviewer"]?.origin == .shipped)
+        #expect(byName["planner"]?.origin == .shipped)
+        #expect(resolved.roles.allSatisfy { $0.overrides.isEmpty },
+                "one directory read as two layers must not report self-shadowing")
+    }
+
     /// The feature the user asked for: a project role with a shipped role's NAME
     /// replaces it — callers keep one stable tool name and automatically get the
     /// project's customisation — and the shadowing is RECORDED, never silent.

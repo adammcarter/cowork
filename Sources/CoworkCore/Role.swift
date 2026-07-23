@@ -201,7 +201,13 @@ public enum RoleLibrary {
         var order: [String] = []
         var unreadable: [UnreadableInLayer] = []
 
-        let layers: [(RoleOrigin, URL?)] = [(.shipped, shipped), (.global, globalDir), (.project, project)]
+        // The flat install layout puts the shipped roles AT the global layer's
+        // path (~/.cowork/roles). One directory is one layer: reading it twice
+        // would report every shipped role as global-shadowing-shipped — noise
+        // for an override that never happened.
+        let global = (globalDir?.standardizedFileURL.path == shipped?.standardizedFileURL.path)
+            ? nil : globalDir
+        let layers: [(RoleOrigin, URL?)] = [(.shipped, shipped), (.global, global), (.project, project)]
         for (origin, directory) in layers {
             guard let directory else { continue }
             let loaded = load(from: directory)

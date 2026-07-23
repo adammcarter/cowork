@@ -16,7 +16,7 @@ cd cowork-<version>-macos-universal
 
 The installer:
 
-1. copies `bin/cowork` + `roles/` + `skills/` into `~/.cowork/dist` (override with
+1. copies `bin/cowork` + `roles/` + `skills/` into `~/.cowork` (override with
    `--prefix` or `COWORK_PREFIX`),
 2. clears the download quarantine bit so the binary runs,
 3. self-checks the binary (MCP handshake + the 10 core tools),
@@ -53,7 +53,7 @@ COWORK_MCP_NAME=cowork-next scripts/install.sh --local --prefix ~/.cowork/next
 ## Layout it writes
 
 ```
-~/.cowork/dist/            # the install prefix (COWORK_PREFIX)
+~/.cowork/            # the install prefix (COWORK_PREFIX)
 ├── bin/cowork             # the binary
 ├── roles/*.role           # SHIPPED roles — found by walking up from the binary
 ├── skills/…               # prose skills
