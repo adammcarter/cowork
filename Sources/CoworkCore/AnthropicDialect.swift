@@ -82,6 +82,7 @@ public struct AnthropicDialect: EndpointDialect {
     /// Map Anthropic's `stop_reason` onto the shared verdict vocabulary. An
     /// unknown reason is passed through untranslated so the verdict refuses it
     /// rather than guessing it was fine.
+//: @use-case:truth.endpoint.anthropic_stop_reason_normalizes_to_verdict_vocab
     private func normalize(stopReason: String?) -> String {
         switch stopReason {
         case "end_turn", "stop_sequence": return "stop"

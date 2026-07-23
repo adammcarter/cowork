@@ -275,3 +275,88 @@ use_cases:
           minimum_count: 1
     approval_policy:
       mode: none
+
+  - id: truth.endpoint.tool_calls_declared_but_absent_is_failed
+    title: A declared tool-call continuation with no calls is failed, never a hang
+    lifecycle: active
+    value_tier: supporting
+    journey_role: negative
+    usage_frequency: rare
+    tags: [adr-000, endpoint, truth]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/EndpointConversation.swift
+    actor: An orchestrating agent
+    intent: A provider that lies about continuing must not hang the loop or pass as success.
+    preconditions:
+      - A provider declares finish_reason tool_calls but sends no tool calls.
+    trigger: The caller dispatches to it.
+    scenarios:
+      - id: truth.endpoint.tool_calls_declared_but_absent_is_failed.main
+        kind: steps
+        steps:
+          - A local stub returns finish_reason tool_calls with no calls.
+          - Dispatch and read the terminal state.
+    observable_outcomes:
+      - The dispatch is failed with endpoint.tool-calls-absent, not left hanging.
+      - A declared-but-empty continuation is a truthful failure, distinct from an unknown finish reason.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: truth.endpoint.anthropic_stop_reason_normalizes_to_verdict_vocab
+    title: Anthropic stop_reason normalizes onto the verdict vocabulary
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: occasional
+    tags: [adr-000, adr-006, endpoint, anthropic, truth]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/AnthropicDialect.swift
+    actor: An orchestrating agent dispatching to an Anthropic-shaped endpoint
+    intent: An Anthropic completion must be judged truthfully — a truncation is a failure, an unknown reason is refused.
+    preconditions:
+      - A local stub serves the Anthropic Messages shape with a chosen stop_reason.
+    trigger: The caller dispatches to an anthropic-kind backend.
+    scenarios:
+      - id: truth.endpoint.anthropic_stop_reason_normalizes_to_verdict_vocab.main
+        kind: steps
+        steps:
+          - Stub returns stop_reason max_tokens, then an unknown stop_reason.
+          - Dispatch to each and read the verdict.
+    observable_outcomes:
+      - max_tokens normalizes to a truncation and is reported failed with endpoint.truncated, never handed back as success.
+      - An unknown stop_reason is refused with endpoint.unexpected-finish, never guessed fine.
+      - The dialect maps its own vocabulary onto the shared verdict signal, proven without a real Anthropic call.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none

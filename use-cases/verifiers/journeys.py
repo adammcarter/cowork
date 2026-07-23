@@ -914,6 +914,73 @@ def _():
             print(f"HTTP 200 + an unknown finish_reason -> {status}")
 
 
+@journey("endpoint.conversation.turn_cap_stops_a_runaway_tool_loop")
+def _():
+    # A model that never concludes — every turn asks for another tool call — must
+    # be bounded and reported truthfully, not hang or be handed back as success.
+    # A local stub that always declares a tool call drives the loop to its cap.
+    body = {"choices": [{"message": {"role": "assistant", "content": "",
+                                     "tool_calls": [{"id": "c", "type": "function",
+                                                     "function": {"name": "noop", "arguments": "{}"}}]},
+                         "finish_reason": "tool_calls"}]}
+    with StubProvider(status=200, body=body) as s:
+        with Fixture(project_config=s.project_config()) as f, f.server() as c:
+            jid = c.dispatch(task="loop forever", backend="stub/any-model")
+            state = c.wait_terminal(jid, budget=120)
+            require(state.split()[0] == "failed",
+                    f"a runaway tool loop must be bounded and reported failed, not hang; got {state}")
+            status = c.status(jid)
+            require("endpoint.turn-limit" in status,
+                    f"the bound must be named as the turn limit; got {status}")
+            print(f"a never-concluding tool loop -> {status} (bounded at the turn cap, no hang)")
+
+
+@journey("truth.endpoint.tool_calls_declared_but_absent_is_failed")
+def _():
+    # A provider that says it is continuing (finish_reason tool_calls) but sends no
+    # calls is lying about the continuation — failed, not a silent hang.
+    body = {"choices": [{"message": {"role": "assistant", "content": ""},
+                         "finish_reason": "tool_calls"}]}   # declares continuation, no calls
+    with StubProvider(status=200, body=body) as s:
+        with Fixture(project_config=s.project_config()) as f, f.server() as c:
+            jid = c.dispatch(task="hi", backend="stub/any-model")
+            state = c.wait_terminal(jid, budget=120)
+            require(state.split()[0] == "failed",
+                    f"a declared continuation with no calls must be failed, not hang; got {state}")
+            require("endpoint.tool-calls-absent" in c.status(jid),
+                    f"the empty continuation must be named; got {c.status(jid)}")
+            print(f"finish_reason=tool_calls with no calls -> failed, endpoint.tool-calls-absent")
+
+
+@journey("truth.endpoint.anthropic_stop_reason_normalizes_to_verdict_vocab")
+def _():
+    # The Anthropic dialect's stop_reason vocabulary is proven against a LOCAL stub
+    # serving the Messages shape — no real Anthropic call. max_tokens must read as
+    # truncation (failed), and an unknown reason must be refused, not guessed fine.
+    def anthropic_stub_config(base_url):
+        return (f'[provider.stubanthropic]\nkind = "anthropic"\n'
+                f'base_url = "{base_url}"\nchat_path = "v1/messages"\n')
+    # max_tokens -> length -> truncated failure
+    trunc = {"content": [{"type": "text", "text": "half an ans"}], "stop_reason": "max_tokens"}
+    with StubProvider(status=200, body=trunc) as s:
+        with Fixture(project_config=anthropic_stub_config(s.base_url)) as f, f.server() as c:
+            jid = c.dispatch(task="write a long essay", backend="stubanthropic/m")
+            state = c.wait_terminal(jid, budget=120)
+            require(state.split()[0] == "failed",
+                    f"Anthropic max_tokens is a TRUNCATION and must be failed, not success; got {state}")
+            require("endpoint.truncated" in c.status(jid),
+                    f"max_tokens must normalize to the truncation verdict; got {c.status(jid)}")
+    # an unknown stop_reason is refused, never assumed fine
+    unknown = {"content": [{"type": "text", "text": "x"}], "stop_reason": "brand_new_reason"}
+    with StubProvider(status=200, body=unknown) as s:
+        with Fixture(project_config=anthropic_stub_config(s.base_url)) as f, f.server() as c:
+            jid = c.dispatch(task="hi", backend="stubanthropic/m")
+            state = c.wait_terminal(jid, budget=120)
+            require(state.split()[0] == "failed" and "endpoint.unexpected-finish" in c.status(jid),
+                    f"an unknown Anthropic stop_reason must be refused, not guessed fine; got {c.status(jid)}")
+    print("Anthropic stop_reason normalizes onto the verdict vocab: max_tokens=truncated, unknown=refused")
+
+
 @journey("truth.endpoint.provider_error_text_survives")
 def _():
     body = {"error": {"code": "1113",

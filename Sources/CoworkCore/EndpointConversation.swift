@@ -59,11 +59,13 @@ public final class EndpointConversation: @unchecked Sendable {
                                transcript: transcript)
 
             case .toolCalls:
+//: @use-case:truth.endpoint.tool_calls_declared_but_absent_is_failed
                 guard !step.toolCalls.isEmpty else {
                     return Outcome(state: .failed, text: content,
                                    diagnostics: ["endpoint.tool-calls-absent"],
                                    transcript: transcript)
                 }
+//: @use-case:end truth.endpoint.tool_calls_declared_but_absent_is_failed
                 messages.append(.assistant(text: content, reasoning: step.reasoning,
                                            toolCalls: step.toolCalls))
                 for call in step.toolCalls {
@@ -74,9 +76,11 @@ public final class EndpointConversation: @unchecked Sendable {
             }
         }
 
+//: @use-case:endpoint.conversation.turn_cap_stops_a_runaway_tool_loop
         return Outcome(state: .failed, text: "",
                        diagnostics: ["endpoint.turn-limit", "max_turns=\(Self.maxTurns)"],
                        transcript: transcript)
+//: @use-case:end endpoint.conversation.turn_cap_stops_a_runaway_tool_loop
     }
 
     public struct Outcome: Sendable {

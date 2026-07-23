@@ -449,3 +449,45 @@ use_cases:
           minimum_count: 1
     approval_policy:
       mode: none
+
+  - id: endpoint.conversation.turn_cap_stops_a_runaway_tool_loop
+    title: A never-concluding tool loop is bounded by the turn cap and reported failed
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: rare
+    tags: [adr-000, endpoint, safety]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/EndpointConversation.swift
+    actor: An orchestrating agent
+    intent: A model that keeps calling tools forever must be bounded and reported truthfully, not hang or fabricate success.
+    preconditions:
+      - A local stub always declares another tool call, so the conversation never concludes.
+    trigger: The caller dispatches to it.
+    scenarios:
+      - id: endpoint.conversation.turn_cap_stops_a_runaway_tool_loop.main
+        kind: steps
+        steps:
+          - Stub returns finish_reason tool_calls on every turn.
+          - Dispatch and read the terminal state.
+    observable_outcomes:
+      - The dispatch is bounded at the turn cap and reported failed with endpoint.turn-limit, never hanging.
+      - The bound is the kernel of ADR-000 safety for endpoint tool loops — a runaway is a named failure, not a silent cost.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
