@@ -136,6 +136,7 @@ public struct Config: Sendable {
         return providers.filter { allowed.contains($0.key) || $0.value.origin == .project }
     }
 
+//: @use-case:config.credential_reference_must_be_env
     private static func provider(name: String, table: [String: Any],
                                  origin: ProviderConfig.Origin) throws -> ProviderConfig {
         let credential = table["credential"] as? String

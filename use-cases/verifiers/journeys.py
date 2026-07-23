@@ -1117,6 +1117,37 @@ def _():
 # Config trust (ADR 005)
 # ---------------------------------------------------------------------------
 
+@journey("config.credential_reference_must_be_env")
+def _():
+    # env:NAME is the only credential scheme — the enforcement that makes "env is
+    # the only secret store" true after the keychain: scheme was removed. A config
+    # credential that is not env: (the retired keychain: scheme, or a literal
+    # secret pasted in) is refused at parse, and a literal value is never echoed.
+    for cred, label in [("keychain:legacy/key", "the retired keychain: scheme"),
+                        ("sk-a-literal-secret-9f3c2", "a literal secret")]:
+        proj = (f'[provider.legacy]\nkind = "openai_compatible"\n'
+                f'base_url = "https://x.example"\ncredential = "{cred}"\n')
+        with Fixture(project_config=proj) as f:
+            c = f.server()
+            try:
+                c.start()
+                raise CoworkFailure(
+                    f"a non-env credential ({label}) was ACCEPTED — env: must be the only scheme")
+            except CoworkFailure as e:
+                msg = str(e)
+                if "was ACCEPTED" in msg:
+                    raise
+                require("credential-not-a-reference" in msg,
+                        f"a non-env credential ({label}) must be refused as "
+                        f"config.credential-not-a-reference; got {msg}")
+                require("env:" in msg, f"the refusal must name env:NAME as the only scheme; got {msg}")
+                require("sk-a-literal-secret-9f3c2" not in msg,
+                        "a literal secret must never be echoed back in the refusal")
+            finally:
+                c.stop()
+    print("env: is the only credential scheme — keychain: and literal secrets refused at parse, value never echoed")
+
+
 @journey("config.hostile_project_credential_is_refused")
 def _():
     # A project config arrives with a clone and nobody read it. This one names a

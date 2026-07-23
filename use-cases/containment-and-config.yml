@@ -234,6 +234,49 @@ use_cases:
     approval_policy:
       mode: none
 
+  - id: config.credential_reference_must_be_env
+    title: A config credential that is not an env reference is refused at parse, never stored as a literal
+    lifecycle: active
+    value_tier: critical
+    journey_role: negative
+    usage_frequency: occasional
+    tags: [adr-000, adr-005, credential]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Config.swift
+    actor: A user migrating a config, or one who pasted a secret in
+    intent: Be stopped from configuring a credential cowork cannot safely handle — the enforcement that makes env-references the only secret store.
+    preconditions:
+      - A config declares a provider whose credential is not an env reference (the retired keychain scheme, or a literal secret).
+    trigger: cowork loads the config.
+    scenarios:
+      - id: config.credential_reference_must_be_env.main
+        kind: steps
+        steps:
+          - Declare a provider whose credential uses the retired keychain scheme, then a literal secret value.
+          - Start cowork and read the refusal.
+    observable_outcomes:
+      - Startup is refused with config.credential-not-a-reference, naming env-NAME as the only scheme.
+      - An env-var reference (a process env var or a .env file) is the only credential store; keychain-style and literal credentials are refused at parse rather than failing later or being stored.
+      - A literal secret is never echoed back in the refusal (ADR 000 — a diagnostic names the variable, never the value).
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
   - id: config.hostile_project_credential_is_refused
     title: A project config that names any credential at all is refused
     lifecycle: active
