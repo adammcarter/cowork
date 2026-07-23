@@ -625,7 +625,9 @@ def _():
                 "the configured Ollama host is not reachable from here, so a "
                 "real dispatch to it cannot be performed now. Reachability is a live fact "
                 f"(ADR 005), and this is it: {rows.splitlines()[0]}")
-        jid = c.dispatch(task="Reply with exactly: OLLAMA_OK", backend="ollama/llama3.2:3b")
+        # qwen2.5:0.5b is the fleet's standard tiny model (same as ollama-local);
+        # llama3.2:3b was a stale hardcode from the LAN box's previous life.
+        jid = c.dispatch(task="Reply with exactly: OLLAMA_OK", backend="ollama/qwen2.5:0.5b")
         state = c.wait_terminal(jid, budget=300)
         require(state.split()[0] == "succeeded", f"ollama dispatch: {state} ({c.status(jid)})")
         print(f"Ollama (LAN, HTTP, no auth) -> {state}")
