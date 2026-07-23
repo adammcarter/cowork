@@ -3,6 +3,9 @@
 ## Status
 
 Accepted - 2026-07-16
+Amended - 2026-07-23: fire-and-forget across sessions recorded as explicitly
+dropped (see the section of that name) — it was already a knowingly-paid cost;
+the amendment makes it a firm decision so it stops reading as unbuilt backlog.
 
 Depends on: [ADR 001](001-fix-the-tool-list-as-cowork-public-contract.md).
 
@@ -163,7 +166,8 @@ State lives on the filesystem.
 - **No fire-and-forget across sessions.** A long dispatch dies with the session
   that fired it. Work in progress is lost, and there is no "start it now, collect
   it tomorrow". This is the direct price of the no-orphans rule and it is paid
-  knowingly.
+  knowingly — see *Explicitly dropped: fire-and-forget across sessions* below,
+  which records it as a firm decision rather than an open gap.
 - **A supervisor process per dispatch.** The death pipe, the process group, the
   timeout, teardown, and event reporting all need something alive that cowork
   controls. That is one extra process per dispatch — the price of never leaking a
@@ -196,6 +200,40 @@ State lives on the filesystem.
   future addition to the event schema.
 - **The stream grows without bound** and needs rotation — a small amount of work
   a daemon would otherwise have owned.
+
+## Explicitly dropped: fire-and-forget across sessions
+
+This is a decision, not a gap on a backlog. **Cowork does not support starting a
+dispatch, closing the session, and collecting the result later.** A dispatch
+lives and dies with the orchestrator that fired it, and this will not be added
+under this ADR.
+
+The reason is that fire-and-forget is the *negation* of the invariant this whole
+design is built on. "Start it now, collect it tomorrow" requires a worker to
+outlive its orchestrator — which is exactly the orphan the no-orphans rule
+(Decision points 1–7, and the death pipe proven in Evidence) exists to prevent.
+The two cannot both hold. Every property this ADR buys — no daemon, no protocol,
+no background component, no schema to migrate, and above all *nothing left
+editing a workspace after its session closes* — is paid for with precisely this
+capability. Adding it back does not extend cowork; it replaces its foundation.
+
+Delivering fire-and-forget would mean one of:
+
+- a **persistent daemon** that adopts and reconciles orphaned dispatches — the
+  distributed system this ADR was written to avoid, with its own supervision,
+  wire format, installer, and migrations;
+- **re-parenting workers to `launchd`** so they survive session death — which
+  makes the orphan that Evidence caught alive-after-a-day the *intended* state
+  rather than the failure mode;
+- a **VM or EndpointSecurity boundary** owning worker lifecycle out of process.
+
+Each is a different product with a different threat model and a different
+operational surface. If cross-session durability is ever genuinely required, it
+is a **new ADR that supersedes this one**, made deliberately and with that cost
+named — not a feature slipped in beside the current model. Until such an ADR
+exists, treat any request for background, detached, or resumable-after-exit
+dispatch as out of scope by design, and report it as such rather than
+implementing a partial version that quietly breaks the no-orphans guarantee.
 
 ## Validation and evidence
 
