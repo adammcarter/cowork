@@ -22,7 +22,14 @@ BINARY = REPO / ".build" / "release" / "cowork"
 
 
 def repo_env_keys() -> dict:
-    """Read .env beside the package. Values are never printed by this harness."""
+    """Read .env beside the package. Values are never printed by this harness.
+
+    ZAI_API_KEY in that file is DELIBERATELY INVALID (z.ai answers 401): the
+    zai provider exists for the refusal, masking, and value-never-leaks rows,
+    which need a credential that exists but must never authenticate. A zai 401
+    is the fixture working, not a stale key — do not "fix" it, and never use
+    zai as a working brain or backend in any journey or host driver.
+    """
     out = {}
     env_file = REPO / ".env"
     if not env_file.exists():
