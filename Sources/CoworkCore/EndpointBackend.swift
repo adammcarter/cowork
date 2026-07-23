@@ -92,15 +92,20 @@ public struct EndpointBackend: Sendable {
         req.timeoutInterval = 180
         // The credential is fetched here, used here, and never stored, logged, or
         // passed to a child. A missing one fails before the request is sent, with
-        // a diagnostic that names the variable and never its value.
+        // a diagnostic that names the variable and never its value. How it becomes
+        // headers is the dialect's business — bearer for OpenAI, x-api-key for
+        // Anthropic — so auth cannot be assumed uniform across providers.
 //: @use-case:endpoint.nvidia.hosted_https_key_dispatch_succeeds#hosted_https_key_dispatc
+        var credential: Credential?
         if let credentialName {
             guard let cred = Secrets.load(credentialName) else {
                 throw EndpointConversation.Failure(state: .failed,
                                     diagnostics: ["endpoint.credential-absent", "expected=\(credentialName)"])
             }
-            req.setValue("Bearer \(cred.exposeForAuthorizationHeader())",
-                         forHTTPHeaderField: "Authorization")
+            credential = cred
+        }
+        for (field, value) in dialect.headers(credential: credential) {
+            req.setValue(value, forHTTPHeaderField: field)
         }
         req.httpBody = body
 //: @use-case:end endpoint.nvidia.hosted_https_key_dispatch_succeeds#hosted_https_key_dispatc

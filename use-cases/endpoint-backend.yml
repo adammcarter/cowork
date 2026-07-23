@@ -59,6 +59,50 @@ use_cases:
     approval_policy:
       mode: none
 
+  - id: endpoint.anthropic.local_messages_dispatch_succeeds
+    title: A model behind the Anthropic Messages API is dispatchable
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-005, adr-006, endpoint, anthropic, dialect]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/AnthropicDialect.swift
+    actor: An orchestrating agent
+    intent: Dispatch to an endpoint that speaks the Anthropic Messages API, not the OpenAI shape — proving the dialect, its stop_reason vocabulary, and its x-api-key auth are provider-shaped, not assumed.
+    preconditions:
+      - An endpoint serving the Anthropic /v1/messages API is reachable (oMLX serves it for the local model).
+      - A provider with kind = "anthropic" is declared in the user's global config.
+    trigger: The caller dispatches to an anthropic-dialect backend id.
+    scenarios:
+      - id: endpoint.anthropic.local_messages_dispatch_succeeds.main
+        kind: steps
+        steps:
+          - Dispatch a task with a verbatim expected answer to the anthropic-kind backend.
+          - Wait for a terminal state and read the output.
+    observable_outcomes:
+      - The dispatch succeeds and the model's declared answer is returned.
+      - The Anthropic stop_reason (end_turn) is normalized onto the verdict vocabulary, so a clean finish reads as succeeded — not as an unknown reason wrongly failed.
+      - A second endpoint dialect proves API shape and auth (x-api-key vs bearer) are the dialect's business, not a single assumption baked into the transport.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
   - id: endpoint.qwen.hosted_https_key_dispatch_succeeds
     title: A hosted provider over HTTPS on a non-standard URL layout is dispatchable
     lifecycle: active

@@ -31,6 +31,8 @@ struct EndpointDialectTests {
                 toolCalls: [],
                 finishReason: json["stop"] as? String ?? "<absent>")
         }
+
+        func headers(credential: Credential?) -> [String: String] { [:] }
     }
 
     @Test("a second dialect runs a conversation end to end")
@@ -126,6 +128,117 @@ struct EndpointDialectTests {
 
         #expect(outcome.state == .failed)
         #expect(outcome.diagnostics == ["endpoint.malformed-response"])
+    }
+
+    // MARK: Anthropic dialect — the Messages API is a different shape, proven the same way
+
+    @Test("Anthropic request and response mapping")
+    func anthropicMapping() throws {
+        let dialect = AnthropicDialect()
+        let body = try dialect.encodeRequest(
+            model: "ornith", maxTokens: 321,
+            messages: [
+                .user("inspect"),
+                .assistant(text: "looking", reasoning: nil,
+                           toolCalls: [.init(id: "tu-1", name: "probe", arguments: "{\"x\":1}")]),
+                .toolResult(id: "tu-1", content: "ok"),
+            ],
+            tools: [.init(name: "probe", description: "Probe things",
+                          inputSchema: ["type": "object", "required": ["x"]])])
+        let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(json["model"] as? String == "ornith")
+        #expect(json["max_tokens"] as? Int == 321)
+        let messages = try #require(json["messages"] as? [[String: Any]])
+        // user text is a plain string, assistant/tool_result are content-block arrays
+        #expect(messages[0]["role"] as? String == "user")
+        #expect(messages[0]["content"] as? String == "inspect")
+        #expect(messages[1]["role"] as? String == "assistant")
+        let asstBlocks = try #require(messages[1]["content"] as? [[String: Any]])
+        #expect(asstBlocks.contains { $0["type"] as? String == "text" && $0["text"] as? String == "looking" })
+        let toolUse = try #require(asstBlocks.first { $0["type"] as? String == "tool_use" })
+        #expect(toolUse["id"] as? String == "tu-1")
+        #expect(toolUse["name"] as? String == "probe")
+        #expect(toolUse["input"] as? [String: Any] != nil)
+        let resultBlocks = try #require(messages[2]["content"] as? [[String: Any]])
+        #expect(resultBlocks[0]["type"] as? String == "tool_result")
+        #expect(resultBlocks[0]["tool_use_id"] as? String == "tu-1")
+        // Anthropic tools carry input_schema, not the OpenAI function wrapper
+        let tools = try #require(json["tools"] as? [[String: Any]])
+        #expect(tools[0]["name"] as? String == "probe")
+        #expect(tools[0]["input_schema"] as? [String: Any] != nil)
+
+        let response = try JSONSerialization.data(withJSONObject: [
+            "content": [
+                ["type": "text", "text": "done"],
+            ],
+            "stop_reason": "end_turn",
+        ])
+        let decoded = try dialect.decodeResponse(response)
+        #expect(decoded.text == "done")
+        #expect(decoded.finishReason == "stop")   // normalized from end_turn
+    }
+
+    @Test("Anthropic max_tokens is always present — the API requires it — defaulted when unset")
+    func anthropicMaxTokensDefaulted() throws {
+        let body = try AnthropicDialect().encodeRequest(
+            model: "ornith", maxTokens: nil, messages: [.user("hi")], tools: [])
+        let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(json["max_tokens"] as? Int != nil, "Anthropic rejects a request with no max_tokens")
+    }
+
+    @Test("Anthropic tool_use decodes to a normalized tool call with JSON-string arguments")
+    func anthropicToolUseDecode() throws {
+        let response = try JSONSerialization.data(withJSONObject: [
+            "content": [
+                ["type": "tool_use", "id": "tu-9", "name": "probe", "input": ["x": 1]],
+            ],
+            "stop_reason": "tool_use",
+        ])
+        let decoded = try AnthropicDialect().decodeResponse(response)
+        #expect(decoded.finishReason == "tool_calls")   // normalized from tool_use
+        #expect(decoded.toolCalls.count == 1)
+        #expect(decoded.toolCalls[0].id == "tu-9")
+        #expect(decoded.toolCalls[0].name == "probe")
+        let args = try #require(JSONSerialization.jsonObject(
+            with: Data(decoded.toolCalls[0].arguments.utf8)) as? [String: Any])
+        #expect(args["x"] as? Int == 1)
+    }
+
+    @Test("Anthropic stop_reason normalizes onto the verdict vocabulary")
+    func anthropicStopReasonNormalization() throws {
+        func finish(_ stop: String) throws -> String {
+            let data = try JSONSerialization.data(withJSONObject: [
+                "content": [["type": "text", "text": "x"]], "stop_reason": stop])
+            return try AnthropicDialect().decodeResponse(data).finishReason
+        }
+        #expect(try finish("end_turn") == "stop")        // → succeeded
+        #expect(try finish("stop_sequence") == "stop")   // clean intended stop → succeeded
+        #expect(try finish("max_tokens") == "length")    // truncation → failed (Verdict)
+        #expect(try finish("tool_use") == "tool_calls")  // → continuation
+        // An unknown Anthropic stop_reason is passed through untranslated so Verdict
+        // refuses it rather than guessing.
+        #expect(try finish("some_new_reason") == "some_new_reason")
+    }
+
+    @Test("each dialect shapes its own auth headers")
+    func dialectAuthHeaders() {
+        // OpenAI: bearer or nothing.
+        #expect(OpenAIDialect().headers(credential: Credential("k")) == ["Authorization": "Bearer k"])
+        #expect(OpenAIDialect().headers(credential: nil).isEmpty)
+        // Anthropic: x-api-key (not bearer) + the required version header; version rides
+        // even with no credential (a local proxy needs no key).
+        let withKey = AnthropicDialect().headers(credential: Credential("k"))
+        #expect(withKey["x-api-key"] == "k")
+        #expect(withKey["Authorization"] == nil)
+        #expect(withKey["anthropic-version"] == "2023-06-01")
+        let noKey = AnthropicDialect().headers(credential: nil)
+        #expect(noKey["x-api-key"] == nil)
+        #expect(noKey["anthropic-version"] == "2023-06-01")
+    }
+
+    @Test("kind 'anthropic' resolves to a working dialect")
+    func anthropicKindResolves() throws {
+        #expect(EndpointDialects.resolve(kind: "anthropic") != nil)
     }
 }
 

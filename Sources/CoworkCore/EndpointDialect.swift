@@ -35,6 +35,11 @@ public struct EndpointDialectResponse: Sendable {
     public let text: String
     public let reasoning: String?
     public let toolCalls: [EndpointToolCall]
+    /// A **normalized** completion signal, not a raw provider string. Each dialect
+    /// maps its provider's vocabulary onto the shared set the verdict layer reads:
+    /// `stop` (clean finish), `length` (truncated), `tool_calls` (continuation).
+    /// Any other value is passed through so the verdict refuses it rather than
+    /// guessing — a provider that invents a signal is not assumed successful.
     public let finishReason: String
 
     public init(text: String, reasoning: String?, toolCalls: [EndpointToolCall],
@@ -46,18 +51,28 @@ public struct EndpointDialectResponse: Sendable {
     }
 }
 
-/// The complete provider-shaped seam. Location, authentication, transport, the
-/// conversation loop, and verdict policy deliberately remain outside it.
+/// The complete provider-shaped seam. Location, transport, the conversation loop,
+/// and verdict policy remain outside it — but **authentication is provider-shaped**
+/// and lives here: OpenAI carries a bearer token, Anthropic an `x-api-key` plus a
+/// required version header. Assuming one auth scheme for every endpoint was wrong,
+/// so the dialect declares how a credential becomes headers.
 public protocol EndpointDialect: Sendable {
     func encodeRequest(model: String, maxTokens: Int?, messages: [EndpointMessage],
                        tools: [EndpointTool]) throws -> Data
     func decodeResponse(_ data: Data) throws -> EndpointDialectResponse
+
+    /// The request headers this provider's API requires, including how the
+    /// credential is presented. `credential` is nil when none is configured (a
+    /// local proxy may need none). The credential is used here at one point and
+    /// never stored, logged, or passed to a child.
+    func headers(credential: Credential?) -> [String: String]
 }
 
 public enum EndpointDialects {
     public static func resolve(kind: String) -> (any EndpointDialect)? {
         switch kind {
         case "openai_compatible": OpenAIDialect()
+        case "anthropic": AnthropicDialect()
         default: nil
         }
     }

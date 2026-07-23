@@ -604,6 +604,24 @@ def _():
         print(f"oMLX (host, HTTP, API key) {OMLX_MODEL} -> {state}, {c.output(jid).strip()!r}")
 
 
+@journey("endpoint.anthropic.local_messages_dispatch_succeeds")
+def _():
+    # oMLX serves the Anthropic Messages API (/v1/messages) for the same local
+    # model, so the anthropic dialect is proven end to end against a real endpoint:
+    # a clean finish (Anthropic's end_turn) must normalize to succeeded, not be
+    # wrongly failed as an unknown stop_reason.
+    require_provider("omlx-anthropic")
+    with Fixture() as f, f.server() as c:
+        backend = "omlx-anthropic/Ornith-1.0-9B-4bit"
+        jid = c.dispatch(task="Reply with exactly: ANTHROPIC_OK and nothing else.", backend=backend)
+        state = c.wait_terminal(jid, budget=240)
+        require(state.split()[0] == "succeeded",
+                f"anthropic dispatch: {state} ({c.status(jid)})")
+        require("ANTHROPIC_OK" in c.output(jid), f"got {c.output(jid)!r}")
+        print(f"Anthropic Messages dialect (oMLX /v1/messages) -> {state}, "
+              f"{c.output(jid).strip()!r}")
+
+
 @journey("endpoint.qwen.hosted_https_key_dispatch_succeeds")
 def _():
     require_provider("qwen")

@@ -45,6 +45,11 @@ public struct OpenAIDialect: EndpointDialect {
             finishReason: first["finish_reason"] as? String ?? "<absent>")
     }
 
+    public func headers(credential: Credential?) -> [String: String] {
+        guard let credential else { return [:] }
+        return ["Authorization": "Bearer \(credential.exposeForAuthorizationHeader())"]
+    }
+
     private func encodeMessage(_ message: EndpointMessage) -> [String: Any] {
         switch message {
         case let .user(text):
