@@ -33,10 +33,11 @@ public struct Credential: Sendable, CustomStringConvertible, CustomDebugStringCo
 }
 
 public enum Secrets {
-    /// Loads `.env` beside the package, then falls back to the process
-    /// environment. A file is a development convenience; the target is a
-    /// Keychain reference, which is why the credential is fetched through this
-    /// seam rather than read inline at the call site.
+    /// Reads an environment variable — from the process environment, or from a
+    /// `.env` file beside the current working directory — as the supported source
+    /// of a provider credential. It is fetched through this single seam, rather
+    /// than read inline at the call site, so the value reaches exactly one point
+    /// of use.
 //: @use-case:endpoint.credential.absent_names_the_variable_never_a_value#absent_names_the_variabl
     public static func load(_ name: String) -> Credential? {
         if let v = ProcessInfo.processInfo.environment[name], !v.isEmpty {

@@ -169,6 +169,26 @@ struct ConfigTests {
         }
     }
 
+    /// `env:NAME` is the only supported credential scheme: a process env var or a
+    /// `.env` file. Any reference with a different scheme parses as a pointer but
+    /// resolves to nothing, so it is refused at parse rather than left to fail
+    /// silently at dispatch.
+    @Test("a non-env credential reference is refused at parse")
+    func nonEnvCredentialRefused() throws {
+        try inTemporaryTree { global, _ in
+            try write("""
+            [provider.bad]
+            kind = "openai_compatible"
+            base_url = "https://example.com"
+            credential = "vault:foo/bar"
+            """, to: global)
+
+            #expect(throws: ConfigError.self) {
+                _ = try Config.load(global: global, project: nil)
+            }
+        }
+    }
+
     // MARK: profiles
 
     @Test("profiles compose by union and mask everything else")

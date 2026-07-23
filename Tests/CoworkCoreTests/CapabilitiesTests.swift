@@ -287,12 +287,12 @@ struct CapabilitiesTests {
         let probe = ScriptedProbe.serving(models: ["glm-4.6"])
         let facts = try await Capabilities.facts(
             backend: "zai",
-            config: endpointConfig(name: "zai", credential: "keychain:cowork/zai"),
+            config: endpointConfig(name: "zai", credential: "vault:cowork/zai"),
             probe: probe, secrets: { _ in nil })
 
         #expect(facts[0].available == false)
         #expect(facts[0].diagnostics.contains("endpoint.credential-unsupported"))
-        #expect(facts[0].diagnostics.contains("scheme=keychain"))
+        #expect(facts[0].diagnostics.contains("scheme=vault"))
         #expect(probe.requests.isEmpty)
     }
 

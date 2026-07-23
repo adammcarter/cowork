@@ -64,8 +64,7 @@ public enum Supervisor {
         //
         // This is the one boundary a credential may cross, and it is narrow: the
         // supervisor IS cowork, not a worker. A worker's environment is built
-        // separately and never receives one (ADR 000). The Keychain is the target
-        // that removes even this hop.
+        // separately and never receives one (ADR 000).
         var env = environment
         env["COWORK_SUPERVISE"] = dispatchID
         if let home = ProcessInfo.processInfo.environment["COWORK_HOME"] { env["COWORK_HOME"] = home }

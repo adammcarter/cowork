@@ -27,8 +27,7 @@ public enum ConfigError: Error, CustomStringConvertible {
         case let .credentialNotAReference(provider):
             return """
                 config.credential-not-a-reference: provider '\(provider)' must use \
-                'env:NAME' or 'keychain:service/account'. A config file holds a pointer, \
-                never a secret.
+                'env:NAME'. A config file holds a pointer, never a secret.
                 """
         case let .unknownProfile(name): return "config.unknown-profile: \(name)"
         }
@@ -142,7 +141,7 @@ public struct Config: Sendable {
         let credential = table["credential"] as? String
         if let credential {
             // A reference, never a literal: the file holds a pointer to a secret.
-            guard credential.hasPrefix("env:") || credential.hasPrefix("keychain:") else {
+            guard credential.hasPrefix("env:") else {
                 throw ConfigError.credentialNotAReference(provider: name)
             }
         }
