@@ -20,10 +20,16 @@ enum ContainedProcess {
     /// Run `executable` with `arguments`, optionally writing `stdinData` then
     /// closing stdin. Returns what it printed, how it exited, and whether it had to
     /// be killed for exceeding `timeout`.
+    /// - Parameter workingDirectory: When set, the *child* chdirs here at spawn
+    ///   via `posix_spawn_file_actions_addchdir_np`. The parent process is never
+    ///   chdir'd — cowork is multi-dispatch and a parent chdir would corrupt every
+    ///   other in-flight worker. `nil` inherits cowork's cwd (unconfined / no grant).
+//: @use-case:containment.workspace_grant_is_worker_cwd
     static func run(executable: URL,
                     arguments: [String],
                     environment: [String],
                     stdinData: Data?,
+                    workingDirectory: String? = nil,
                     cpuSecondsLimit: rlim_t,
                     timeout: TimeInterval) -> Result {
         let outPipe = Pipe()
@@ -44,6 +50,18 @@ enum ContainedProcess {
                    outPipe.fileHandleForReading.fileDescriptor,
                    outPipe.fileHandleForWriting.fileDescriptor] where fd > 2 {
             posix_spawn_file_actions_addclose(&fileActions, fd)
+        }
+
+        // The workspace grant is the child's *starting directory* (ADR 003:
+        // a cwd grant, not a sandbox). If the chdir action cannot be recorded,
+        // fail the spawn — never start the worker in the wrong directory.
+        if let workingDirectory {
+            let chdirRC = workingDirectory.withCString { path in
+                posix_spawn_file_actions_addchdir_np(&fileActions, path)
+            }
+            guard chdirRC == 0 else {
+                return Result(output: Data(), exitStatus: Int32(chdirRC) << 8, timedOut: false)
+            }
         }
 
         // ADR 003 rule 3: the worker owns its process group, so it and its
@@ -149,9 +167,11 @@ public struct ContainedProcessSpawner: CliProcessSpawning {
     public init() {}
 
     public func run(executable: URL, arguments: [String], environment: [String],
-                    stdin: Data?, cpuSecondsLimit: rlim_t, timeout: TimeInterval) -> CliProcessResult {
+                    stdin: Data?, workingDirectory: String?,
+                    cpuSecondsLimit: rlim_t, timeout: TimeInterval) -> CliProcessResult {
         let result = ContainedProcess.run(executable: executable, arguments: arguments,
                                           environment: environment, stdinData: stdin,
+                                          workingDirectory: workingDirectory,
                                           cpuSecondsLimit: cpuSecondsLimit, timeout: timeout)
         return CliProcessResult(output: result.output, exitStatus: result.exitStatus,
                                 timedOut: result.timedOut)

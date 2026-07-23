@@ -26,7 +26,8 @@ struct CodexAcceptanceTests {
         let result: CliProcessResult
         init(result: CliProcessResult) { self.result = result }
         func run(executable: URL, arguments: [String], environment: [String],
-                 stdin: Data?, cpuSecondsLimit: rlim_t, timeout: TimeInterval) -> CliProcessResult {
+                 stdin: Data?, workingDirectory: String?,
+                 cpuSecondsLimit: rlim_t, timeout: TimeInterval) -> CliProcessResult {
             lock.lock(); _call = Call(arguments: arguments, stdin: stdin); lock.unlock()
             return result
         }

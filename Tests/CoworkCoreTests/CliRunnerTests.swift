@@ -13,7 +13,8 @@ struct CliRunnerTests {
     /// Records what it was asked to run and returns a scripted result.
     final class FakeSpawner: CliProcessSpawning, @unchecked Sendable {
         struct Call { let executable: URL; let arguments: [String]
-                      let environment: [String]; let stdin: Data? }
+                      let environment: [String]; let stdin: Data?
+                      let workingDirectory: String? }
         private let lock = NSLock()
         private var _call: Call?
         var call: Call? { lock.lock(); defer { lock.unlock() }; return _call }
@@ -21,10 +22,12 @@ struct CliRunnerTests {
         init(result: CliProcessResult) { self.result = result }
 
         func run(executable: URL, arguments: [String], environment: [String],
-                 stdin: Data?, cpuSecondsLimit: rlim_t, timeout: TimeInterval) -> CliProcessResult {
+                 stdin: Data?, workingDirectory: String?,
+                 cpuSecondsLimit: rlim_t, timeout: TimeInterval) -> CliProcessResult {
             lock.lock()
             _call = Call(executable: executable, arguments: arguments,
-                         environment: environment, stdin: stdin)
+                         environment: environment, stdin: stdin,
+                         workingDirectory: workingDirectory)
             lock.unlock()
             return result
         }
@@ -50,6 +53,36 @@ struct CliRunnerTests {
     }
 
     private let ok = CliProcessResult(output: Data("out".utf8), exitStatus: 0, timedOut: false)
+
+    @Test("the workspace grant reaches the spawner as the child's working directory — for every dialect")
+    func workspaceGrantReachesSpawner() throws {
+        let ws = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cowork-runner-ws-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: ws, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: ws) }
+
+        let spawner = FakeSpawner(result: ok)
+        let driver = RecordingDriver(
+            invocationToReturn: Invocation(arguments: []),
+            outcomeToReturn: CliOutcome(state: .succeeded, text: "", diagnostics: []))
+        let runner = CliRunner(executable: URL(fileURLWithPath: "/bin/agent"),
+                               driver: driver, spawn: spawner)
+        _ = runner.run(task: "t", workspace: Workspace(root: ws, writable: true))
+        #expect(spawner.call?.workingDirectory == ws.path,
+                "the grant must become the spawned child's working directory")
+    }
+
+    @Test("no workspace means no working directory — the child inherits cowork's cwd")
+    func noWorkspaceMeansNoWorkingDirectory() {
+        let spawner = FakeSpawner(result: ok)
+        let driver = RecordingDriver(
+            invocationToReturn: Invocation(arguments: []),
+            outcomeToReturn: CliOutcome(state: .succeeded, text: "", diagnostics: []))
+        let runner = CliRunner(executable: URL(fileURLWithPath: "/bin/agent"),
+                               driver: driver, spawn: spawner)
+        _ = runner.run(task: "t", workspace: nil)
+        #expect(spawner.call?.workingDirectory == nil)
+    }
 
     @Test("run hands the driver's arguments and stdin to the spawner and returns the driver's parse")
     func passesInvocationAndReturnsParse() {

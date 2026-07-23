@@ -22,7 +22,8 @@ public struct CliProcessResult: Sendable {
 /// (`ContainedProcess`); a test substitutes a fake that records and scripts.
 public protocol CliProcessSpawning: Sendable {
     func run(executable: URL, arguments: [String], environment: [String],
-             stdin: Data?, cpuSecondsLimit: rlim_t, timeout: TimeInterval) -> CliProcessResult
+             stdin: Data?, workingDirectory: String?,
+             cpuSecondsLimit: rlim_t, timeout: TimeInterval) -> CliProcessResult
 }
 
 /// The generic CLI one-shot runner: it owns the duplicated 80% every dialect shared
@@ -56,6 +57,7 @@ public struct CliRunner: Sendable {
 
         let result = spawn.run(executable: executable, arguments: invocation.arguments,
                                environment: environment, stdin: invocation.stdin,
+                               workingDirectory: workspace?.root.path,
                                cpuSecondsLimit: cpuSecondsLimit, timeout: timeout)
 
         if result.timedOut {

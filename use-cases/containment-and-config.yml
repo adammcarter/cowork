@@ -164,6 +164,46 @@ use_cases:
     approval_policy:
       mode: none
 
+  - id: containment.workspace_grant_is_worker_cwd
+    title: A workspace grant becomes the spawned worker's working directory
+    lifecycle: active
+    value_tier: critical
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-003, workspace]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/ContainedProcess.swift
+      - kind: file
+        path: Sources/CoworkCore/CliRunner.swift
+    actor: An orchestrator dispatching work scoped to a directory
+    intent: The worker must operate inside the granted directory, not wherever cowork happens to run.
+    preconditions:
+      - A dispatch with a workspace grant against any one-shot CLI backend.
+    trigger: The dispatch spawns the worker.
+    scenarios:
+      - id: containment.workspace_grant_is_worker_cwd.main
+        kind: steps
+        steps:
+          - Grant a workspace containing a marker file.
+          - Dispatch a task asking the worker to report its pwd and whether the marker is visible.
+          - Compare the reported pwd against the grant root.
+    observable_outcomes:
+      - The worker's pwd is the grant root, even for backends with no cwd flag of their own (claude).
+      - The chdir happens in the spawned child only; cowork's own cwd never moves.
+      - A grant directory that cannot be entered fails the spawn instead of running the worker elsewhere.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
   - id: config.hostile_project_credential_is_refused
     title: A project config that names any credential at all is refused
     lifecycle: active

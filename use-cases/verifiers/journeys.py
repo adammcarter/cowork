@@ -850,6 +850,32 @@ def _():
                 print(f"failed dispatch -> {state}; workspace and its artifacts kept for inspection")
 
 
+@journey("containment.workspace_grant_is_worker_cwd")
+def _():
+    # claude is the backend that exposed the bug: it has no cwd flag of its own,
+    # so the grant only reaches it if the spawn itself chdirs the child (ADR 003).
+    require_provider("claude")
+    with Fixture() as f, f.server() as c:
+        ws = f.dir / "grant-ws"
+        ws.mkdir()
+        (ws / "HERE.txt").write_text("marker")
+        jid = c.dispatch(
+            task="Run pwd via your Bash tool. Reply with ONLY the directory path it "
+                 "prints, then the word EXISTS if a file named HERE.txt is present in "
+                 "that directory, or MISSING if it is not.",
+            backend="claude", workspace=str(ws))
+        state = c.wait_terminal(jid, budget=300)
+        require(state.split()[0] == "succeeded", f"claude dispatch: {state} ({c.status(jid)})")
+        out = c.output(jid)
+        real = os.path.realpath(ws)
+        require(str(ws) in out or real in out,
+                f"the worker's pwd must be the grant root {ws}; it answered {out!r} — "
+                "the grant was resolved but never became the spawned child's cwd")
+        require("EXISTS" in out and "MISSING" not in out,
+                f"the worker must see files inside the grant; got {out!r}")
+        print(f"workspace grant -> worker pwd is the grant root, sees its files: {out.strip()!r}")
+
+
 # ---------------------------------------------------------------------------
 # Config trust (ADR 005)
 # ---------------------------------------------------------------------------
