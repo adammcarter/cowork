@@ -199,6 +199,49 @@ def _():
                   f"missing slot refused by name")
 
 
+#: @use-case:sugar.roles.skills_find_their_named_tools
+@journey("sugar.roles.skills_find_their_named_tools")
+def _():
+    # The 7 ported skills drive an orchestrating agent to call tools by name.
+    # A skill naming a tool the server does not expose fails at first use, on a
+    # host far from this repo — so the binding is proven here: parse the names
+    # out of the skills' own prose, install the real shipped .role files, and
+    # require the exposed surface to match in both directions.
+    import re
+    named = set()
+    for md in (REPO / "skills").rglob("*.md"):
+        named |= set(re.findall(r"\brole_[a-z_]+\b", md.read_text()))
+    named = {n for n in named if not n.endswith("_")}  # drop prose stubs like "role_review_*"
+    require(named, "no role_* names found in skills/ — the parse is broken, not the surface")
+    shipped = sorted((REPO / "roles").glob("*.role"))
+    require(shipped, "no shipped .role files found — the parse is broken, not the surface")
+    with Fixture() as f:
+        roles = f.proj / ".cowork" / "roles"
+        roles.mkdir(parents=True)
+        for role in shipped:
+            (roles / role.name).write_text(role.read_text())
+        with f.server() as c:
+            tools = set(c.list_tools())
+            require(TEN_TOOLS <= tools, "the 10 core tools must be unchanged beside role tools")
+            role_tools = {t for t in tools if t.startswith("role_")}
+            missing = named - role_tools
+            require(not missing,
+                    f"skills name tools the server does not expose: {sorted(missing)} — "
+                    "the skill fails at first use on any host")
+            unnamed = role_tools - named
+            require(not unnamed,
+                    f"shipped roles no skill names: {sorted(unnamed)} — surface drift; "
+                    "either a skill lost its reference or a role is dead weight")
+            # The composition path is wired, not just listed — a named slot
+            # refusal proves it at zero dispatch cost.
+            text, is_error = c.call("role_review_senior")
+            require(is_error and "missing slot" in text,
+                    f"a bare role call must refuse by slot name; got {text!r}")
+            print(f"{len(named)} tool names across skills/ == {len(role_tools)} shipped role tools; "
+                  f"10 core tools intact; composition wired ({text.strip()!r})")
+#: @use-case:end sugar.roles.skills_find_their_named_tools
+
+
 @journey("contract.tools.dispatch_returns_id_while_work_runs_elsewhere")
 def _():
     backends = backends_under_test()

@@ -59,3 +59,44 @@ use_cases:
           minimum_count: 1
     approval_policy:
       mode: none
+
+  - id: sugar.roles.skills_find_their_named_tools
+    title: Every tool the ported skills name exists on the shipped surface
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-002, skills]
+    source_refs:
+      - kind: file
+        path: roles
+      - kind: file
+        path: skills
+    actor: An orchestrating agent following a ported skill's instructions
+    intent: A skill that names a tool must find that tool on the server, or it fails on a host far from this repo.
+    preconditions:
+      - The repo's shipped .role files and skills/ prose, as committed.
+    trigger: A server starts with the shipped roles installed.
+    scenarios:
+      - id: sugar.roles.skills_find_their_named_tools.main
+        kind: steps
+        steps:
+          - Parse every role_* tool name out of the skills' own prose.
+          - Install the repo's shipped .role files into a project and start a server.
+          - Compare the exposed role tools against the names the skills use, both directions.
+          - Call one role with no arguments and observe the named slot refusal.
+    observable_outcomes:
+      - Every role_* name a skill mentions is exposed as a tool; the 10 core tools are intact.
+      - No shipped role is unnamed by every skill — surface drift is caught in both directions.
+      - The composition path is wired, proven by a named missing-slot refusal at zero dispatch cost.
+    host_applicability:
+      - host_surface: codex.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
