@@ -56,12 +56,14 @@ public struct EndpointBackend: Sendable {
     /// equivalent of "the process exited 0" — a diagnostic, never the verdict. The
     /// worker's declared `finish_reason` decides. `tool_calls` is a *continuation*;
     /// only the loop's own conclusion is terminal.
+//: @use-case:endpoint.omlx.local_http_key_dispatch_succeeds
     public func run(task: String, workspace: Workspace?) async -> Outcome {
         let conversation = makeConversation(workspace: workspace)
         let outcome = await conversation.turn(task)
         return Outcome(state: outcome.state, text: outcome.text,
                        diagnostics: outcome.diagnostics, transcript: outcome.transcript)
     }
+//: @use-case:end endpoint.omlx.local_http_key_dispatch_succeeds
 
     /// The same endpoint, held open across turns for an interactive dispatch.
     ///
