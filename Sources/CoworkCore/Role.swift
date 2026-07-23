@@ -68,6 +68,7 @@ public struct Role: Equatable, Sendable {
 
         return Role(name: name, description: description, slots: slots, template: template)
     }
+//: @use-case:end sugar.roles.malformed_role_is_refused_by_name
 
     /// Fill the template from `values`, enforcing the hard edges: every declared slot
     /// must be supplied, and every supplied value must be a declared slot. A slot's
