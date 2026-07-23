@@ -362,6 +362,50 @@ use_cases:
     approval_policy:
       mode: none
 
+  - id: contract.tools.unknown_backend_is_refused_not_guessed
+    title: A typo'd backend id is refused with the visible backends, never answered as if it existed
+    lifecycle: active
+    value_tier: core
+    journey_role: negative
+    usage_frequency: common
+    tags: [adr-000, adr-001]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Capabilities.swift
+    actor: An orchestrating agent that mistyped a backend id
+    intent: Be told plainly that a backend does not exist, with the real options, instead of a fact-shaped guess.
+    preconditions:
+      - The cowork server is running with its normal configured backends.
+    trigger: The caller dispatches to, or asks capabilities for, a backend id that resolves to nothing.
+    scenarios:
+      - id: contract.tools.unknown_backend_is_refused_not_guessed.main
+        kind: steps
+        steps:
+          - Dispatch to a backend id that is not configured.
+          - Ask `capabilities` for the same id.
+          - Read both refusals.
+    observable_outcomes:
+      - Dispatch is refused, naming the id and the visible provider/cli set so the caller can correct the typo.
+      - capabilities refuses it too — it never answers an unknown backend with a guessed availability fact (ADR 000).
+      - The resolution seam fails closed; a typo cannot be dispatched under a wrong backend.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
   - id: contract.tools.follow_up_carries_context
     title: follow_up starts a new dispatch carrying a finished dispatch's context
     lifecycle: active

@@ -136,6 +136,7 @@ public enum BackendResolver {
     /// so capabilities can report it. Dispatch checks `oneShot` / interactive
     /// presence before launching. Returns `nil` only when the id is not a backend
     /// at all (unknown name, masked provider, empty model).
+//: @use-case:contract.tools.unknown_backend_is_refused_not_guessed
     public static func resolve(_ id: String, config: Config) -> ResolvedBackend? {
         if let cli = config.cli[id] {
             return resolveCli(cli)
@@ -232,6 +233,7 @@ public enum BackendResolver {
     /// An endpoint can be messaged (cowork owns the message list) and cannot be
     /// followed up (no continuation handle). Those facts are the presence or
     /// absence of the operations below — never hand-set Bools.
+//: @use-case:endpoint.dialect.unsupported_kind_is_refused_not_defaulted
     public static func resolveEndpoint(id: String, provider: ProviderConfig,
                                        model: String) -> ResolvedBackend {
         guard let dialect = EndpointDialects.resolve(kind: provider.kind) else {

@@ -468,6 +468,73 @@ def _():
         print(f"capabilities omlx -> {len(available)} live models, none declared in config")
 
 
+@journey("contract.tools.unknown_backend_is_refused_not_guessed")
+def _():
+    # Every dispatch/send/capabilities path funnels through backend resolution.
+    # A typo'd id must fail closed — named refusal with the visible backends —
+    # never a fact-shaped guess that pretends the backend exists.
+    with Fixture() as f, f.server() as c:
+        bogus = "notaprovider/nope"
+        text, is_error = c.call("dispatch", task="hi", backend=bogus)
+        require(is_error, f"a typo'd backend must be refused, not dispatched; got {text!r}")
+        require("no such backend" in text and bogus in text,
+                f"the refusal must name the id; got {text!r}")
+        require("visible providers" in text,
+                f"the refusal must show the visible set so the caller can correct; got {text!r}")
+        cap, cap_err = c.call("capabilities", backend=bogus)
+        require(cap_err and "no-such-backend" in cap,
+                f"capabilities must refuse a typo, never answer with a guessed fact; got {cap!r}")
+        print(f"unknown backend refused by name with the visible set (dispatch + capabilities), never guessed")
+
+
+@journey("endpoint.dialect.unsupported_kind_is_refused_not_defaulted")
+def _():
+    # The dialect registry is a real switch (openai_compatible + anthropic). A
+    # provider whose configured kind has no dialect must fail closed — reported
+    # unavailable and refused at dispatch — never silently run under the wrong shape.
+    proj = ('[provider.bogusdialect]\n'
+            'kind      = "totally_made_up"\n'
+            'base_url  = "http://127.0.0.1:9"\n')
+    with Fixture(project_config=proj) as f, f.server() as c:
+        rows = c.ok("capabilities", backend="bogusdialect", _timeout=30).splitlines()
+        require(rows, "capabilities returned nothing for the configured provider")
+        require(any("unavailable" in r and "dialect-unsupported" in r for r in rows),
+                f"an unsupported dialect kind must report unavailable + endpoint.dialect-unsupported; got {rows}")
+        text, is_error = c.call("dispatch", task="hi", backend="bogusdialect/m")
+        require(is_error,
+                f"dispatch under an unsupported dialect must be refused, not run as OpenAI; got {text!r}")
+        print(f"unsupported dialect kind: capabilities names endpoint.dialect-unsupported, dispatch fails closed")
+
+
+@journey("sugar.roles.malformed_role_is_refused_by_name")
+def _():
+    # A role whose template names an undeclared slot, or lacks its separator, is
+    # refused at parse — its role_* tool never appears, so it cannot dispatch an
+    # empty hole; a valid role beside it still surfaces.
+    with Fixture() as f:
+        roles = f.proj / ".cowork" / "roles"
+        roles.mkdir(parents=True)
+        (roles / "good.role").write_text(
+            'name = "good"\ndescription = "ok"\nslots = ["x"]\n---\nUse {x}\n')
+        (roles / "bad_slot.role").write_text(
+            'name = "bad_slot"\ndescription = "broken"\nslots = ["x"]\n---\nUse {y}\n')  # {y} undeclared
+        (roles / "no_sep.role").write_text(
+            'name = "no_sep"\ndescription = "broken"\nslots = ["x"]\nUse {x}\n')          # no ---
+        with f.server() as c:
+            tools = set(c.list_tools())
+            require("role_good" in tools,
+                    f"a valid role must surface its tool; got {sorted(t for t in tools if t.startswith('role_'))}")
+            require("role_bad_slot" not in tools,
+                    "a role whose template names an undeclared slot must NOT surface a tool")
+            require("role_no_sep" not in tools,
+                    "a role with no front-matter separator must NOT surface a tool")
+        # The refusal is by name, not silent: the malformed files are named on stderr.
+        err = c.stderr_text()
+        require("bad_slot" in err or "no_sep" in err or "role.invalid" in err,
+                f"a malformed role must be surfaced by name, not silently dropped; stderr={err[-200:]!r}")
+        print("malformed roles refused by name; their tools never appear; the valid role still does")
+
+
 @journey("contract.tools.follow_up_carries_context")
 def _():
     require_provider("claude")

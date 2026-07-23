@@ -157,3 +157,46 @@ use_cases:
           minimum_count: 1
     approval_policy:
       mode: none
+
+  - id: sugar.roles.malformed_role_is_refused_by_name
+    title: A malformed role is refused by name, never dispatching an empty hole
+    lifecycle: active
+    value_tier: core
+    journey_role: negative
+    tags: [adr-000, adr-002, roles]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Role.swift
+    actor: A user whose .role file has a mistake
+    intent: Learn that a role is broken, by name, instead of it silently running with an empty hole in its prompt.
+    usage_frequency: occasional
+    preconditions:
+      - A project roles directory contains a malformed .role beside a valid one.
+    trigger: The server loads the roles.
+    scenarios:
+      - id: sugar.roles.malformed_role_is_refused_by_name.main
+        kind: steps
+        steps:
+          - Drop a role whose template names an undeclared slot, and one with no front-matter separator, beside a valid role.
+          - List the tools and read the load diagnostics.
+    observable_outcomes:
+      - A malformed role does not surface a role_* tool, so it cannot dispatch a prompt with an unfilled hole.
+      - The malformed files are named in the load diagnostics, not silently dropped (ADR 000).
+      - A valid role beside them still surfaces normally.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none

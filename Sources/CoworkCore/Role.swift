@@ -38,6 +38,7 @@ public struct Role: Equatable, Sendable {
 
     /// Parse a role file: front-matter, `---`, body. The separator is the first line
     /// that is exactly `---`, so a `---` inside the body is left untouched.
+//: @use-case:sugar.roles.malformed_role_is_refused_by_name
     public static func parse(_ text: String) throws -> Role {
         let lines = text.components(separatedBy: "\n")
         guard let sep = lines.firstIndex(of: "---") else { throw ParseError.missingSeparator }

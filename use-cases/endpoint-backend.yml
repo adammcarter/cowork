@@ -103,6 +103,49 @@ use_cases:
     approval_policy:
       mode: none
 
+  - id: endpoint.dialect.unsupported_kind_is_refused_not_defaulted
+    title: An endpoint whose configured kind has no dialect is refused, never run as OpenAI
+    lifecycle: active
+    value_tier: supporting
+    journey_role: negative
+    usage_frequency: rare
+    tags: [adr-000, adr-006, endpoint, dialect]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/ResolvedBackend.swift
+    actor: A user who mistyped or misconfigured a provider kind
+    intent: A provider whose kind cowork cannot speak must fail closed, not be dispatched under a wrong wire shape.
+    preconditions:
+      - A provider is configured with a kind that has no registered dialect.
+    trigger: The caller asks capabilities for, or dispatches to, that provider.
+    scenarios:
+      - id: endpoint.dialect.unsupported_kind_is_refused_not_defaulted.main
+        kind: steps
+        steps:
+          - Configure a provider with kind "totally_made_up".
+          - Ask capabilities for it and dispatch to it.
+    observable_outcomes:
+      - capabilities reports it unavailable with endpoint.dialect-unsupported, naming the kind.
+      - Dispatch is refused rather than run under the OpenAI shape by default.
+      - The dialect registry fails closed on an unknown kind (ADR 000).
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
   - id: endpoint.qwen.hosted_https_key_dispatch_succeeds
     title: A hosted provider over HTTPS on a non-standard URL layout is dispatchable
     lifecycle: active
