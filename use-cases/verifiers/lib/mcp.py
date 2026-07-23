@@ -56,7 +56,11 @@ class Cowork:
         if not inherit_home:
             env["HOME"] = str(self.home)
         env["COWORK_HOME"] = str(self.store)
-        env.update(repo_env_keys())
+        # Repo .env keys are deliberately NOT injected here. The documented
+        # channel is the Fixture's project .env (with_keys=True) or an explicit
+        # extra_env — an unconditional injection made with_keys=False a lie the
+        # moment a real repo .env existed, and the credential-absent row proved
+        # it by watching a "missing" credential resolve.
         if extra_env:
             env.update(extra_env)
         self.env = env
