@@ -370,6 +370,42 @@ def _():
         print(f"wait is hard-capped and 'running' is an answer — across {backends}")
 
 
+@journey("contract.tools.wait_streams_progress_when_asked")
+def _():
+    # A caller that sends a progressToken must receive notifications/progress
+    # heartbeats carrying the live lifecycle state while wait blocks — proving the
+    # visibility layer is real, over a still-running worker, without changing the
+    # terminal result. A local model that takes a few seconds gives wait something
+    # to report on.
+    require_provider("omlx")
+    with Fixture() as f, f.server() as c:
+        # Short enough to finish cleanly (a long count truncates -> failed), but the
+        # local model still takes a few seconds, so wait polls many times meanwhile.
+        jid = c.dispatch(task="Count from 1 to 8, one number per line, then write DONE.",
+                         backend=OMLX_MODEL)
+        state, is_error, progress = c.call_capturing_progress(
+            "wait", _timeout=180, id=jid, timeout="120")
+        require(not is_error, f"wait failed: {state!r}")
+        require(progress, "a progressToken was sent but no notifications/progress arrived")
+        tokens = {p.get("progressToken") for p in progress}
+        require(tokens == {"uc-progress-1"},
+                f"every progress note must carry the caller's token; got {tokens}")
+        messages = [p.get("message") for p in progress]
+        lifecycle = {"queued", "running", "awaiting_input",
+                     "succeeded", "failed", "cancelled", "timed_out"}
+        require(all(m in lifecycle for m in messages),
+                f"each heartbeat carries a live lifecycle state; got {messages}")
+        require(any(m in {"queued", "running"} for m in messages),
+                f"progress must be seen while the worker is live, not only at the end; got {messages}")
+        values = [p.get("progress") for p in progress]
+        require(values == sorted(values), f"progress must increase monotonically; got {values}")
+        require(state.split()[0] == "succeeded",
+                f"the terminal result is unchanged by progress; got {state!r}")
+        c.call("cancel", id=jid)
+        print(f"wait streamed {len(progress)} progress heartbeats "
+              f"({messages[:1]}..{messages[-1:]}) then -> {state}; token honoured, monotonic")
+
+
 @journey("contract.tools.cancel_stops_a_running_dispatch")
 def _():
     backends = backends_under_test()

@@ -196,6 +196,45 @@ class Cowork:
             raise CoworkFailure(f"{name} unexpectedly failed: {text}")
         return text
 
+    def call_capturing_progress(self, name, _timeout=180, **arguments):
+        """Call a tool with a progressToken and collect every notifications/progress
+        that arrives before its reply. Returns (text, is_error, [progress params]).
+
+        The token rides in the request's `_meta`, exactly as an MCP host asks for
+        out-of-band progress; the server associates its notifications with it.
+        """
+        token = "uc-progress-1"
+        progress = []
+        with self._lock:
+            self._id += 1
+            rid = self._id
+            self._write({"jsonrpc": "2.0", "id": rid, "method": "tools/call",
+                         "params": {"name": name,
+                                    "arguments": {k: str(v) for k, v in arguments.items()},
+                                    "_meta": {"progressToken": token}}})
+            deadline = time.time() + _timeout
+            while time.time() < deadline:
+                line = self.proc.stdout.readline()
+                if not line:
+                    raise CoworkFailure(f"cowork closed stdout awaiting {name}")
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if msg.get("method") == "notifications/progress":
+                    progress.append(msg.get("params", {}))
+                    continue
+                if msg.get("id") == rid:
+                    if "error" in msg:
+                        raise CoworkFailure(f"{name} -> jsonrpc error: {msg['error']}")
+                    res = msg.get("result", {})
+                    text = "".join(c.get("text", "") for c in res.get("content", []))
+                    return text, bool(res.get("isError", False)), progress
+            raise CoworkFailure(f"timed out awaiting {name} reply")
+
     def dispatch(self, task, backend, **kw):
         return self.ok("dispatch", task=task, backend=backend, **kw)
 

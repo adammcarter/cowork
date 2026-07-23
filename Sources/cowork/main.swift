@@ -211,7 +211,12 @@ let projectRoles = URL(fileURLWithPath: FileManager.default.currentDirectoryPath
 await server.withMethodHandler(ListTools.self) { _ in
     .init(tools: currentRoles().roles.map(roleTool) + [
         Tool(name: "dispatch",
-             description: "Dispatch work to an agent. Returns a dispatch id.",
+             description: "Dispatch work to an agent. Returns a dispatch id immediately; "
+                 + "the work runs on independently and durably. To collect the result, prefer "
+                 + "in order: (1) let your harness background a blocking `wait` if it can — "
+                 + "it frees your turn; (2) otherwise poll `status`/`output` (the durable "
+                 + "monitor — the event stream is also tail-able); (3) otherwise call `wait` "
+                 + "with a timeout. All three read the same durable record.",
              inputSchema: .object(["type": .string("object"), "properties": .object([
                  "task": strProp("The work to do"),
                  "backend": strProp("Configured backend id"),
@@ -226,7 +231,10 @@ await server.withMethodHandler(ListTools.self) { _ in
              description: "The worker's declared result for a dispatch.",
              inputSchema: .object(["type": .string("object"), "properties": .object(["id": strProp("Dispatch id")])])),
         Tool(name: "wait",
-             description: "Block up to a hard-capped timeout, then return the state, including 'still running'.",
+             description: "Block up to a hard-capped timeout, then return the state, including "
+                 + "'still running'. Send a progressToken to receive notifications/progress "
+                 + "heartbeats carrying the live lifecycle state while it blocks (visibility "
+                 + "only — the terminal result is identical without one).",
              inputSchema: .object(["type": .string("object"), "properties": .object([
                  "id": strProp("Dispatch id"),
                  "timeout": strProp("Seconds, hard-capped"),
@@ -296,7 +304,26 @@ await server.withMethodHandler(CallTool.self) { params in
         if case let .string(raw)? = params.arguments?["timeout"], let parsed = TimeInterval(raw) {
             timeout = parsed
         }
-        guard let r = dispatcher.wait(id: id, timeout: timeout) else {
+        // A caller that sent a progressToken gets a heartbeat while the wait blocks:
+        // one notifications/progress per poll carrying the live lifecycle state. This
+        // is pure visibility — the same record status/output read, the same terminal
+        // result — so a host that ignores or cannot render progress loses nothing.
+        let record: DispatchRecord?
+        if let token = params._meta?.progressToken {
+            record = await WaitProgress.run(
+                id: id, timeout: timeout,
+                load: { DispatchRecord.load($0) },
+                emit: { emission in
+                    try? await server.notify(ProgressNotification.message(.init(
+                        progressToken: token, progress: emission.progress,
+                        total: nil, message: emission.message)))
+                },
+                sleep: { try? await Task.sleep(nanoseconds: 200_000_000) },
+                now: { Date() })
+        } else {
+            record = dispatcher.wait(id: id, timeout: timeout)
+        }
+        guard let r = record else {
             return .init(content: [.text("unknown dispatch")], isError: true)
         }
         return .init(content: [.text(r.state.rawValue)])

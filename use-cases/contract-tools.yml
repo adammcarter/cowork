@@ -187,6 +187,51 @@ use_cases:
     approval_policy:
       mode: none
 
+  - id: contract.tools.wait_streams_progress_when_asked
+    title: wait streams live progress to a caller that asks, without changing the result
+    lifecycle: active
+    value_tier: core
+    journey_role: alternate
+    usage_frequency: common
+    tags: [adr-001, mcp, progress]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/WaitProgress.swift
+    actor: An orchestrating agent whose host renders MCP progress
+    intent: See that in-flight work is alive and what it is doing, without giving up the durable wait/status/output it already relies on.
+    preconditions:
+      - A dispatch is running against a backend that takes a few seconds.
+      - The caller sends a progressToken with the wait request.
+    trigger: The caller calls `wait` with a progressToken in the request _meta.
+    scenarios:
+      - id: contract.tools.wait_streams_progress_when_asked.main
+        kind: steps
+        steps:
+          - Dispatch a task that runs for several seconds.
+          - Call `wait` with a progressToken and collect notifications/progress until it returns.
+          - Compare the heartbeats and the terminal result.
+    observable_outcomes:
+      - notifications/progress arrive during the wait, each carrying the caller's token and the live lifecycle state.
+      - Progress increases monotonically and at least one heartbeat is seen while the worker is still running.
+      - The terminal result is exactly what a caller without a progressToken would get — progress is visibility over the durable store, never a replacement for it.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
   - id: contract.tools.cancel_stops_a_running_dispatch
     title: cancel stops a dispatch, its worker, and says so on the stream
     lifecycle: active
