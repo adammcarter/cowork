@@ -320,7 +320,7 @@ class Unverifiable(Exception):
     """
 
 
-OMLX_MODEL = "omlx/example-7b"
+OMLX_MODEL = "omlx/Ornith-1.0-9B-4bit"
 
 
 def require(condition, message):
