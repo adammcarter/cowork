@@ -66,6 +66,51 @@ use_cases:
     approval_policy:
       mode: none
 
+  - id: sugar.skills.installed_skills_reach_every_host_loader
+    title: Installing cowork links its skills into every host that can load them
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-002, skills, install]
+    source_refs:
+      - kind: file
+        path: scripts/install.sh
+    actor: A user installing cowork on a machine with agent CLIs
+    intent: Skills must reach each host's discovery directory from one canonical source — no copies to drift, nothing clobbered.
+    preconditions:
+      - The installer runs with host skill directories overridden to a fixture.
+    trigger: install.sh completes.
+    scenarios:
+      - id: sugar.skills.installed_skills_reach_every_host_loader.main
+        kind: steps
+        steps:
+          - Install into a temp prefix with all three host skill dirs pointed at fixtures.
+          - Compare each host dir's cowork-* links against the shipped skill set.
+          - Re-run the installer after retiring a skill and adding a foreign entry.
+    observable_outcomes:
+      - Every shipped skill appears in each host dir as a cowork-<name> symlink resolving into the prefix.
+      - A retired skill's link disappears on reinstall; a foreign (non-cowork) entry is never touched.
+      - OpenCode is a documented exception — its capability surface is the role_* tools.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: false
+        notes: no SKILL.md loader — role_* tools carry the same capabilities
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
   - id: sugar.roles.skills_find_their_named_tools
     title: Every tool the ported skills name exists on the shipped surface
     lifecycle: active

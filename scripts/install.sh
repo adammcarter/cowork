@@ -22,6 +22,13 @@
 #   ├── roles/*.role                (shipped ∪ yours — merged, never clobbered)
 #   ├── skills/…
 #   └── commands/…
+#
+# Skills are then LINKED into each host's skill discovery directory
+# (~/.claude/skills, ~/.codex/skills, ~/.copilot/skills) as cowork-<name>
+# symlinks pointing back at $PREFIX/skills/<name> — one canonical source, no
+# copies to drift. OpenCode has no skill loader; its users get the same
+# capabilities as role_* tools. Override the host dirs for testing with
+# COWORK_CLAUDE_SKILLS_DIR / COWORK_CODEX_SKILLS_DIR / COWORK_COPILOT_SKILLS_DIR.
 set -euo pipefail
 
 GREEN=$'\033[0;32m'; YELLOW=$'\033[0;33m'; RED=$'\033[0;31m'; DIM=$'\033[2m'; RESET=$'\033[0m'
@@ -92,6 +99,37 @@ mkdir -p "$PREFIX/roles"
 cp "$SRC/roles/"*.role "$PREFIX/roles/"
 [ -d "$SRC/skills" ]   && { rm -rf "$PREFIX/skills";   cp -R "$SRC/skills"   "$PREFIX/skills"; }
 [ -d "$SRC/commands" ] && { rm -rf "$PREFIX/commands"; cp -R "$SRC/commands" "$PREFIX/commands"; }
+
+# --- 2b. link skills into each host's discovery directory ----------------------
+# One canonical source (the installed $PREFIX/skills) linked as cowork-<name>
+# into every host that loads SKILL.md from a skills dir. Idempotent: stale
+# cowork-* links owned by us (i.e. resolving into $PREFIX/skills) are removed
+# first, so renamed or retired skills disappear; anything else in the host dir
+# is never touched.
+#: @use-case:sugar.skills.installed_skills_reach_every_host_loader
+link_skills_into() {
+  host_dir="$1"; host_name="$2"
+  [ -d "$PREFIX/skills" ] || return 0
+  mkdir -p "$host_dir"
+  for link in "$host_dir"/cowork-*; do
+    [ -L "$link" ] || continue
+    case "$(readlink "$link")" in "$PREFIX/skills/"*) rm "$link" ;; esac
+  done
+  linked=0
+  for skill in "$PREFIX/skills"/*/; do
+    name="$(basename "$skill")"
+    [ -f "$skill/SKILL.md" ] || { warn "[$host_name] skills/$name has no SKILL.md — not linked"; continue; }
+    ln -s "$PREFIX/skills/$name" "$host_dir/cowork-$name"
+    linked=$((linked + 1))
+  done
+  ok "[$host_name] $linked skills linked into $host_dir"
+}
+
+link_skills_into "${COWORK_CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"   claude
+link_skills_into "${COWORK_CODEX_SKILLS_DIR:-$HOME/.codex/skills}"     codex
+link_skills_into "${COWORK_COPILOT_SKILLS_DIR:-$HOME/.copilot/skills}" copilot
+# opencode: no SKILL.md loader — the role_* tools carry these capabilities there.
+#: @use-case:end sugar.skills.installed_skills_reach_every_host_loader
 
 BIN="$PREFIX/bin/cowork"
 # The MCP server name hosts register cowork under. Override to install a second

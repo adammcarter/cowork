@@ -200,6 +200,77 @@ def _():
 
 
 #: @use-case:sugar.roles.skills_find_their_named_tools
+@journey("sugar.skills.installed_skills_reach_every_host_loader")
+def _():
+    # The installer is the unit under test, run for real against fixture host
+    # dirs (the COWORK_*_SKILLS_DIR overrides exist precisely so this journey
+    # never touches the machine's actual host state). One canonical source,
+    # symlinked — so "byte-exact" is structural: every link resolves into the
+    # prefix and lands on a SKILL.md.
+    import subprocess, tempfile, shutil
+    shipped = sorted(d.name for d in (REPO / "skills").iterdir() if d.is_dir())
+    require(shipped, "no shipped skills — the journey's premise is gone")
+    work = pathlib.Path(tempfile.mkdtemp(prefix="uc-skills-install-"))
+    try:
+        prefix = work / "prefix"
+        hosts = {h: work / f"host-{h}" for h in ("claude", "codex", "copilot")}
+        env = dict(os.environ)
+        env.update({
+            "COWORK_PREFIX": str(prefix),
+            "COWORK_MCP_NAME": "cowork_skills_journey",  # never touch real registrations…
+            "PATH": "/usr/bin:/bin",                      # …and no host CLIs on PATH at all
+            "COWORK_OPENCODE_CONFIG": str(work / "opencode.json"),
+            "COWORK_CLAUDE_SKILLS_DIR": str(hosts["claude"]),
+            "COWORK_CODEX_SKILLS_DIR": str(hosts["codex"]),
+            "COWORK_COPILOT_SKILLS_DIR": str(hosts["copilot"]),
+        })
+        def run_installer():
+            r = subprocess.run(["bash", str(REPO / "scripts" / "install.sh"),
+                                "--binary", str(REPO / ".build" / "release" / "cowork")],
+                               capture_output=True, text=True, timeout=120, env=env,
+                               cwd=str(work))
+            require(r.returncode == 0,
+                    f"install.sh failed ({r.returncode}): {(r.stderr or r.stdout)[-300:]}")
+        # --binary expects <src>/bin/cowork with roles/skills beside it — stage it.
+        src = work / "src"; (src / "bin").mkdir(parents=True)
+        shutil.copy(REPO / ".build" / "release" / "cowork", src / "bin" / "cowork")
+        shutil.copytree(REPO / "roles", src / "roles")
+        shutil.copytree(REPO / "skills", src / "skills")
+        env_binary = str(src / "bin" / "cowork")
+        def run_installer():  # noqa: F811 — staged form supersedes
+            r = subprocess.run(["bash", str(REPO / "scripts" / "install.sh"),
+                                "--binary", env_binary],
+                               capture_output=True, text=True, timeout=120, env=env,
+                               cwd=str(work))
+            require(r.returncode == 0,
+                    f"install.sh failed ({r.returncode}): {(r.stderr or r.stdout)[-300:]}")
+        run_installer()
+        for host, hdir in hosts.items():
+            links = sorted(l.name for l in hdir.glob("cowork-*"))
+            require(links == [f"cowork-{s}" for s in shipped],
+                    f"[{host}] linked {links}, shipped {shipped}")
+            for l in hdir.glob("cowork-*"):
+                require(l.is_symlink() and str(l.resolve()).startswith(str(prefix.resolve())),
+                        f"[{host}] {l.name} is not a symlink into the prefix")
+                require((l / "SKILL.md").exists(),
+                        f"[{host}] {l.name} does not land on a SKILL.md")
+        # Reinstall semantics: a retired skill's link disappears; a foreign entry survives.
+        foreign = hosts["claude"] / "cowork-imposter"
+        foreign.symlink_to(work)                       # cowork-* name, NOT owned by the prefix
+        (hosts["claude"] / "unrelated").mkdir()
+        retired = shipped[0]
+        shutil.rmtree(src / "skills" / retired)
+        run_installer()
+        names = sorted(l.name for l in hosts["claude"].glob("cowork-*"))
+        require(f"cowork-{retired}" not in names, f"retired skill still linked: {names}")
+        require(foreign.is_symlink(), "a cowork-* link not owned by the prefix was removed")
+        require((hosts["claude"] / "unrelated").exists(), "a foreign entry was touched")
+        print(f"{len(shipped)} skills linked into 3 host dirs from one source; "
+              f"retire + foreign-entry semantics hold")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 @journey("sugar.roles.skills_find_their_named_tools")
 def _():
     # The 7 ported skills drive an orchestrating agent to call tools by name.
