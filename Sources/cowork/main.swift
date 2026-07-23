@@ -84,8 +84,10 @@ final class LiveDispatches: @unchecked Sendable {
 }
 let live = LiveDispatches()
 
+//: @use-case:host.conformance.harness_accepts_and_calls_the_contract
 let server = Server(name: "cowork", version: coworkVersion,
                     capabilities: .init(tools: .init(listChanged: false)))
+//: @use-case:end host.conformance.harness_accepts_and_calls_the_contract
 
 /// A JSON-Schema string property. A tool's inputSchema must be a real JSON Schema:
 /// the top level is `{"type":"object","properties":{…}}` and every property is
@@ -263,9 +265,11 @@ await server.withMethodHandler(ListTools.self) { _ in
 
 await server.withMethodHandler(CallTool.self) { params in
     switch params.name {
+//: @use-case:host.conformance.dispatch_roundtrip_through_the_harness
     case "dispatch":
         guard case let .string(task)? = params.arguments?["task"]
         else { return .init(content: [.text("missing task or backend")], isError: true) }
+//: @use-case:end host.conformance.dispatch_roundtrip_through_the_harness
         // Spawn a supervisor and return an id; the work happens in that process, which
         // is what makes status, wait, cancel and send real (ADR 001, ADR 003 rule 1).
         return startDispatch(task: task, arguments: params.arguments)

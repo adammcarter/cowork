@@ -22,3 +22,11 @@ verifiers:
     kind: script
     evidence_kind: live_demo
     command: ["bash", "use-cases/verifiers/run.sh", "{slug}"]
+  # Host-conformance rows: the variant names a real agent CLI (claude | codex |
+  # copilot | opencode) and the journey drives that harness headlessly with
+  # cowork registered as a scoped MCP server. One family row, one verdict per
+  # host — the family is green only when every declared host passes.
+  host-journey:
+    kind: script
+    evidence_kind: live_demo
+    command: ["bash", "use-cases/verifiers/run-host.sh", "{slug}", "{variant}"]

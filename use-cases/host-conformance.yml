@@ -1,0 +1,118 @@
+schema_version: 1
+feature:
+  id: host.conformance
+  name: Host conformance
+  summary: >
+    cowork is usable by ANY agent, not one: every supported host harness —
+    Claude Code, Codex, Copilot, OpenCode — connects to the same stdio MCP
+    server, accepts the same tool list, and completes the same golden path.
+    Each row here is one behaviour with the host as a VARIANT, so `uc scan`
+    names exactly which harness regressed instead of hiding four surfaces
+    behind one verdict.
+
+use_cases:
+  - id: host.conformance.harness_accepts_and_calls_the_contract
+    title: Every supported harness accepts the tool list and completes a call
+    lifecycle: active
+    value_tier: critical
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-001, host-conformance]
+    variants:
+      - key: claude
+        title: Claude Code
+      - key: codex
+        title: Codex CLI
+      - key: copilot
+        title: Copilot CLI
+      - key: opencode
+        title: OpenCode
+    source_refs:
+      - kind: file
+        path: Sources/cowork/main.swift
+    actor: A user on any supported agent CLI
+    intent: Register cowork once and have their agent see and use its tools — whichever harness they live in.
+    preconditions:
+      - The host CLI is installed; cowork is registered as a scoped MCP server for the run.
+    trigger: The host connects and is asked to call one cowork tool.
+    scenarios:
+      - id: host.conformance.harness_accepts_and_calls_the_contract.main
+        kind: steps
+        steps:
+          - Register cowork with the host via its scoped per-run config channel.
+          - Ask the host, headlessly, to call the `capabilities` tool and print the result.
+          - Observe the capabilities payload surfacing in the host's reply.
+    observable_outcomes:
+      - The host accepts the tool list (a strict host rejects the whole server on one bad schema).
+      - One real tool call completes through the host's own MCP stack.
+      - The same binary serves every harness — no host-specific build or config shape.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [host-journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: host.conformance.dispatch_roundtrip_through_the_harness
+    title: The dispatch golden path completes through every harness
+    lifecycle: active
+    value_tier: critical
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-001, host-conformance]
+    variants:
+      - key: claude
+        title: Claude Code
+      - key: codex
+        title: Codex CLI
+      - key: copilot
+        title: Copilot CLI
+      - key: opencode
+        title: OpenCode
+    source_refs:
+      - kind: file
+        path: Sources/cowork/main.swift
+    actor: A user on any supported agent CLI delegating real work
+    intent: dispatch -> wait -> output must behave identically whichever agent is driving.
+    preconditions:
+      - The host CLI is installed; the local oMLX worker is reachable.
+    trigger: The host's agent is asked to dispatch a task and report the worker's answer.
+    scenarios:
+      - id: host.conformance.dispatch_roundtrip_through_the_harness.main
+        kind: steps
+        steps:
+          - Register cowork with the host via its scoped per-run config channel.
+          - Ask the host, headlessly, to dispatch a marker task to the local worker, wait, and print the output.
+          - Inspect the run-scoped store for the dispatch record and its terminal state.
+    observable_outcomes:
+      - A dispatch record exists in a store only this run can write — the host really caused it.
+      - The record reaches `succeeded`; the worker's marker answer surfaces in the host's reply.
+      - No host-specific behaviour difference is observable on the golden path.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [host-journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
