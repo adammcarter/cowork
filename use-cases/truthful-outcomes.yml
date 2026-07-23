@@ -46,7 +46,13 @@ use_cases:
       - The diagnostics name the truncation and the finish_reason that caused it.
       - The partial content is still preserved and returned, because it is reported rather than discarded.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -82,7 +88,13 @@ use_cases:
       - The dispatch fails rather than being assumed fine. Guessing "probably fine" is how a wrong answer becomes a reported one.
       - The unrecognised reason is named in the diagnostics rather than swallowed.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -119,7 +131,13 @@ use_cases:
       - The provider's own code survives beside it.
       - An "Insufficient balance" message is actionable and a bare "429" is not. Reducing a provider's diagnosis to a status code throws away the only part a caller can act on, and can actively mislead — the message may be true while the real fault is a wrong endpoint.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -155,7 +173,13 @@ use_cases:
       - The dispatch is `failed`. Terminal state derives from what the worker said about itself; process exit is a diagnostic.
       - The disagreement between declaration and exit code is recorded rather than resolved in the transport's favour.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -191,7 +215,13 @@ use_cases:
       - The failure is reported as auth-rejected, distinct from a generic HTTP failure.
       - The provider's own rejection message survives alongside it.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -229,7 +259,13 @@ use_cases:
       - A slow-but-listening endpoint is never reported unreachable. Latency is enormous and real — the same request spans seconds to minutes across models — and a deadline that is too short reports a timeout truthfully while still being the wrong answer.
       - Timeout is not unreachable. Rule 3 exists for exactly this.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements

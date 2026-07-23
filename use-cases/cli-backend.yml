@@ -42,7 +42,13 @@ use_cases:
       - The dispatch succeeds and the agent's declared result is collected.
       - The dispatch reaches a terminal event and no supervisor or worker survives it.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -80,7 +86,13 @@ use_cases:
       - A real Codex worker starts, is observed, is cancelled, and returns an attributable result.
       - supports_message reports the truth for whichever mode is used, rather than an assumption.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements

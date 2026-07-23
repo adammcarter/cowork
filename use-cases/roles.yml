@@ -49,7 +49,13 @@ use_cases:
       - The dispatch record's task IS the composed template, so the prompt a role
         built is inspectable rather than hidden (ADR 002 rule 6).
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -90,7 +96,13 @@ use_cases:
       - No shipped role is unnamed by every skill — surface drift is caught in both directions.
       - The composition path is wired, proven by a named missing-slot refusal at zero dispatch cost.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements

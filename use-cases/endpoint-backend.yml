@@ -42,7 +42,13 @@ use_cases:
       - The dispatch succeeds and the model's declared answer is returned.
       - Local and authenticated is an ordinary combination — authentication is a property of an endpoint's configuration, not of where it runs.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -79,7 +85,13 @@ use_cases:
       - The URL layout is configuration — Qwen serves a non-/v1 compatible-mode path, and hardcoding /v1 would silently exclude it while looking as though the provider were non-compliant.
       - Adding a hosted provider over HTTPS with an API key required no new code.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -115,7 +127,13 @@ use_cases:
       - The dispatch succeeds with no credential configured, proving location and credentials are independent.
       - The same loop serves it as serves an authenticated hosted provider.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -150,7 +168,13 @@ use_cases:
       - The dispatch succeeds with no new code path and no local-versus-hosted branch.
       - A remote 70B behind a bearer token is the same shape as a 9B on the machine next to you.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -191,7 +215,13 @@ use_cases:
       - A tool-call turn is a continuation, not a terminal outcome — only the loop's own conclusion is terminal.
       - Cowork reports what happened and does not grade the answer. A wrong-but-declared-complete answer is still reported as succeeded, because grading belongs to the caller.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -227,7 +257,13 @@ use_cases:
       - No provider, URL, path, port or credential is named anywhere in Sources.
       - Adding a provider is a config edit, not a code change and a release.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -264,7 +300,13 @@ use_cases:
       - The dispatch fails before the request is sent, with a diagnostic naming the expected variable.
       - The credential's value appears in no event, no record, and no diagnostic.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -304,7 +346,13 @@ use_cases:
       - The credential is resolved from the environment and the dispatch succeeds.
       - A reference of the form env:NAME means the environment variable NAME — the config file's own documented meaning.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements

@@ -41,7 +41,13 @@ use_cases:
       - Exactly dispatch, send, finish, follow_up, status, output, wait, cancel, list and capabilities are offered.
       - A tool absent from the contract is absent from the surface.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -78,7 +84,13 @@ use_cases:
       - An opaque `j_` id is returned promptly; ids are minted by cowork and callers never supply them.
       - The work is genuinely elsewhere — the dispatch is still in flight when the call returns.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -115,7 +127,13 @@ use_cases:
       - status reports `succeeded`.
       - output is the worker's own declared result, not a summary cowork invented.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -152,7 +170,13 @@ use_cases:
       - wait returns at its cap, never blocking indefinitely.
       - The state `running` is returned as a real answer — a caller can tell in-flight work from a result.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -190,7 +214,13 @@ use_cases:
       - A `cancelled` event reaches the stream — the terminal event is never skipped.
       - No supervisor process survives the cancel.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -227,7 +257,13 @@ use_cases:
       - "`all` shows everything on the machine."
       - An unknown scope is refused rather than silently becoming a different scope — a caller is never shown someone else's work, nor silently denied their own.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -264,7 +300,13 @@ use_cases:
       - No model is named in the config — the list is probed, so a newly loaded model is dispatchable with no config change.
       - Availability is a live fact rather than a stored one.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -300,7 +342,13 @@ use_cases:
       - A new dispatch id is returned; backend and workspace are inherited rather than re-supplied.
       - The new worker recalls the first dispatch's context, proving the context really carried.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -336,7 +384,13 @@ use_cases:
       - The call is refused with a diagnostic naming the reason.
       - Cowork does not start a fresh dispatch and call it a follow-up — that would forget everything the worker knew while reporting continuity.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -376,7 +430,13 @@ use_cases:
       - The dispatch reaches `awaiting_input`, which is a real state and not a variant of success.
       - The dispatch ends only on `finish`, an idle timeout, or worker exit.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -415,7 +475,13 @@ use_cases:
       - The message reaches the live worker; `send` closes the gap where a pivot otherwise forces a stop-and-restart that discards the worker's context.
       - The worker answers the second message, producing its own declared result for that turn.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -452,7 +518,13 @@ use_cases:
       - The dispatch reaches a terminal state.
       - The warm worker and its supervisor are released — an interactive dispatch holds a live process by design, and `finish` is what bounds the cost.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -490,7 +562,13 @@ use_cases:
       - "`parent` answers \"who fired this one\" and `root` answers \"whose work is this\", so a consumer never accumulates the tree in memory."
       - Every line stays under PIPE_BUF (4096 bytes), which is what makes concurrent appends atomic with no lock.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -527,7 +605,13 @@ use_cases:
       - "It is never a silent default: the unconfined dispatch is recorded as unconfined in the event stream."
       - A confined dispatch records its grant instead.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements

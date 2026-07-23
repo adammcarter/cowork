@@ -41,7 +41,13 @@ use_cases:
       - Every supervisor and worker dies with the orchestrator. This is kernel-enforced by the death pipe — the OS closes the descriptors, the supervisor reads EOF, and needs no cooperation from the dying process.
       - A running agent with nobody left to collect its result is a liability, not a feature — it burns budget and can still mutate a workspace.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -79,7 +85,13 @@ use_cases:
       - With no daemon there is no background sweeper, so any invocation reconciles — the stream is eventually truthful rather than instantly so.
       - The reconciled state is cancelled rather than failed, because under the no-orphans rule an owner's death IS a cancellation by cowork's own design, and blaming the backend would be a small lie.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -115,7 +127,13 @@ use_cases:
       - The record exists and the queued event is published before the process is spawned.
       - Spawn-then-record leaves a window in which a crash leaks a running worker with no name that no reconciliation can recover. Write-ahead makes the record, not the process, the source of truth.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -153,7 +171,13 @@ use_cases:
       - The dispatch's record survives too.
       - Unconditional cleanup destroys the evidence a failure exists to provide.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -193,7 +217,13 @@ use_cases:
       - The chdir happens in the spawned child only; cowork's own cwd never moves.
       - A grant directory that cannot be entered fails the spawn instead of running the worker elsewhere.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -231,7 +261,13 @@ use_cases:
       - The weaker rule — that a project may reuse a credential the user declared globally — is worthless, and a hostile config proved it. The binding that matters is credential-to-provider, never the credential's name.
       - This is the one place cowork prevents rather than reports. Prompt and code leakage is bad and observable; key leakage is worse and permanent.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -270,7 +306,13 @@ use_cases:
       - A provider inside the profile still works, so the mask is a boundary and not a blanket.
       - Naming one profile is a real answer for work that must not leave the machine.
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
@@ -307,7 +349,13 @@ use_cases:
       - The project's provider is reported with a project origin; the user's own is reported with a global origin.
       - A project genuinely needs to add providers, so this is reported rather than prevented — the blast radius of a hostile project config is bounded at "it can see your prompt", never "it can take your keys".
     host_applicability:
+      - host_surface: claude.cli
+        supported: true
       - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
         supported: true
     verification_policy:
       mode: requirements
