@@ -37,10 +37,43 @@ tools.
 
 ## Backends
 
-- **CLI agents** — Claude Code, Codex, Grok. Interactive `send`/`finish` keep a
-  worker warm across turns.
+- **CLI agents** — Claude Code, Codex, Grok built in, plus **any other CLI** you
+  wire from config (see below). The worker owns its own lifecycle; cowork
+  dispatches and collects. Interactive `send`/`finish` keep a built-in worker warm
+  across turns.
 - **HTTP endpoints** — any OpenAI-compatible chat API (hosted models, or a local
-  Ollama over `/v1`).
+  Ollama over `/v1`). Cowork drives the turn loop itself.
+
+### Wiring any CLI
+
+A `kind = "generic"` block in `~/.cowork/config.toml` describes a CLI's wire, so a
+new agent is configuration rather than a cowork release. This is the answer for a
+small local model: put an agent harness in front of it and let the harness own the
+context and compaction.
+
+```toml
+[cli.opencode]
+executable     = "~/.opencode/bin/opencode"
+kind           = "generic"
+task_delivery  = "argv"              # argv | stdin_raw | stdin_json_stream_user
+args           = ["run", "{task}"]
+workspace_args = ["--cwd", "{workspace}"]
+output         = "raw"               # raw | json_field | stream_json_result
+verdict        = "exit_code_only"    # a CLOSED set of tested outcome rules
+
+[cli.opencode.env]
+OPENCODE_MODEL = "ollama/qwen2.5-coder:7b"
+
+[cli.opencode.isolate]
+var = "XDG_CONFIG_HOME"              # fresh 0700 dir per dispatch, always removed
+```
+
+`verdict` **selects** one of cowork's tested outcome rules — it can never author
+one, so no config can make a failed worker report success. Generic blocks are
+global-config only, their environment may not touch execution-sensitive keys, and a
+config-wired capability is advertised with an `unverified` marker until a real run
+proves it. See
+**[ADR 007](docs/ADRs/007-open-the-cli-transport-to-any-agent-by-descriptor.md)**.
 
 ## Install
 

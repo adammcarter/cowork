@@ -65,6 +65,12 @@ the **dialect** it speaks over that transport. Nothing else forks the code.
    adapter and declares its `kind` in config. Adding a CLI agent is one adapter,
    not a new transport.
 
+   > **Amended by [ADR 007](007-open-the-cli-transport-to-any-agent-by-descriptor.md).**
+   > The fork is still the dialect, but a dialect is now a *descriptor* read from
+   > configuration rather than a hand-written adapter, so adding a CLI agent is a
+   > config block rather than a cowork release. The three named dialects here remain
+   > as sealed built-in descriptors.
+
 4. **Within endpoint, the only variation is the HTTP dialect.**
    `openai_compatible` (the `/v1/chat/completions` shape) is the implemented
    dialect; the seam is a single `EndpointDialect`, so a second dialect (e.g. a
@@ -75,9 +81,11 @@ the **dialect** it speaks over that transport. Nothing else forks the code.
    worker can hold a live `send`/`finish` session is a fact *about that worker*,
    reported truthfully by `capabilities` ([ADR 001](001-fix-the-tool-list-as-cowork-public-contract.md)),
    not a fifth branch. Claude, Grok, and Codex can each be messaged mid-session
-   over their own session (each CLI is `SessionCapable`); an endpoint can too, via
-   cowork's owned message list. A worker that cannot be messaged says so rather
-   than pretend.
+   over their own session; an endpoint can too, via cowork's owned message list. A
+   worker that cannot be messaged says so rather than pretend. (Under
+   [ADR 007](007-open-the-cli-transport-to-any-agent-by-descriptor.md) that fact is
+   the presence of a session operation on the resolved backend, rather than a
+   compile-time protocol conformance — a config-wired CLI is truthfully one-shot.)
 
 ## Consequences
 
