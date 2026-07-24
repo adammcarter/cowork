@@ -10,8 +10,8 @@ import Foundation
 /// dispatch: `finish`, the idle timeout, or the worker exiting.
 ///
 /// This lives in the core rather than in the supervisor's own file because it is
-/// the lifecycle, not a backend detail: whatever drives the worker — Claude's
-/// stdin, Codex's `codex-reply`, or an in-process endpoint loop — the states, the
+/// the lifecycle, not a backend detail: whatever drives the worker — a stdin turn
+/// wire, an MCP reply tool, or an in-process endpoint loop — the states, the
 /// events and the bound on a warm worker's life are the same.
 public struct InteractiveSession: Sendable {
     /// What one turn declared. Mirrors a backend's outcome, plus the one fact only

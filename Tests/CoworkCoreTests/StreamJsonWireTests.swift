@@ -3,17 +3,16 @@ import Testing
 
 @testable import CoworkCore
 
-/// The claude one-shot wire: invocation shape (stream-json flags, the task as a JSON
-/// user message on stdin) and NDJSON parse, exercised without spawning claude.
+/// The stream-json one-shot wire: invocation shape (the task as a JSON user message
+/// on stdin) and NDJSON parse, exercised without spawning anything.
 ///
-/// These assertions are the FROZEN PIN for claude's wire — written against the
-/// hand-written `ClaudeOneShotDriver` and proven identical to `ConfiguredDriver`
-/// interpreting `BuiltinDescriptors.claude` before that driver was deleted.
-@Suite("Claude built-in wire")
-struct ClaudeOneShotDriverTests {
-    private let driver = ConfiguredDriver(name: "claude",
-                                          executable: URL(fileURLWithPath: "/bin/claude"),
-                                          descriptor: BuiltinDescriptors.claude)
+/// These assertions are the FROZEN PIN for this shape. They were written against a
+/// hand-written driver, proven identical to `ConfiguredDriver`, and now run against
+/// the descriptor the shipped example config declares — same expectations, one fewer
+/// place a wire can hide.
+@Suite("stream-json one-shot wire")
+struct StreamJsonWireTests {
+    private let driver = try! ExampleConfig.driver("claude")
 
     private func decodeStdin(_ data: Data?) -> [String: Any]? {
         guard let data else { return nil }
@@ -79,7 +78,7 @@ struct ClaudeOneShotDriverTests {
         #expect(outcome.diagnostics.contains("cli.no-declared-result"))
     }
 
-    @Test("the deadline diagnostic is claude's own")
+    @Test("a deadline is a deadline, whichever CLI hit it")
     func deadlineDiagnostic() {
         #expect(driver.deadlineDiagnostic == "cli.deadline")
     }

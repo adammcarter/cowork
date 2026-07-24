@@ -3,7 +3,7 @@ import Foundation
 
 /// Spawning someone else's process, contained (ADR 003).
 ///
-/// Every CLI worker — claude, codex, grok — gets the same treatment: its own
+/// Every CLI worker, whichever agent it is, gets the same treatment: its own
 /// process group so it and its descendants die as a unit, a hard kernel CPU limit
 /// it cannot raise, a sanitized allowlist environment, and output drained
 /// concurrently so a full pipe buffer cannot deadlock the worker before it exits.
@@ -106,7 +106,7 @@ enum ContainedProcess {
         // Drain concurrently (a full pipe buffer would otherwise deadlock the worker
         // before it could exit), reap with a deadline, then kill the group — which
         // is also what closes any helper's inherited copy of the pipe and releases
-        // the reader. Reading to EOF alone is a trap: Claude Code's helper runs in
+        // the reader. Reading to EOF alone is a trap: an agent's own helper runs in
         // its own process group AND inherits this pipe, holding the write end open
         // after the agent exits, so EOF never arrives.
         let collected = Collector()

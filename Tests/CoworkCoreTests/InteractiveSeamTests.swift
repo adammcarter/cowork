@@ -7,7 +7,7 @@ import Testing
 ///
 /// This is the pairing item 0 is actually about, and the one nothing tested. The
 /// unit tests either drove `InteractiveSession` with a closure that was not a
-/// worker, or drove `CliSession` with no dispatch around it — so a dispatch that
+/// worker, or drove `StreamJsonSession` with no dispatch around it — so a dispatch that
 /// never reached `awaiting_input` passed both.
 ///
 /// Written before the code that makes it pass, from the interactive-dispatch requirement:
@@ -82,8 +82,9 @@ struct InteractiveSeamTests {
             try rec.save()
             try Mailbox.create(rec.id)
 
-            let session = try CliSession(executable: agent, arguments: [],
-                                         environment: ["PATH": "/usr/bin:/bin"],
+            let session = try StreamJsonSession(
+                                         pipe: ContainedPipe(executable: agent, arguments: [],
+                                                            environment: ["PATH": "/usr/bin:/bin"]),
                                          turnTimeout: 5)
             let root = Store.root
 
@@ -138,8 +139,9 @@ struct InteractiveSeamTests {
             try rec.save()
             try Mailbox.create(rec.id)
 
-            let session = try CliSession(executable: agent, arguments: [],
-                                         environment: ["PATH": "/usr/bin:/bin"],
+            let session = try StreamJsonSession(
+                                         pipe: ContainedPipe(executable: agent, arguments: [],
+                                                            environment: ["PATH": "/usr/bin:/bin"]),
                                          turnTimeout: 5)
             let root = Store.root
 
@@ -194,8 +196,9 @@ struct InteractiveSeamTests {
             try rec.save()
             try Mailbox.create(rec.id)
 
-            let session = try CliSession(executable: agent, arguments: [],
-                                         environment: ["PATH": "/usr/bin:/bin"],
+            let session = try StreamJsonSession(
+                                         pipe: ContainedPipe(executable: agent, arguments: [],
+                                                            environment: ["PATH": "/usr/bin:/bin"]),
                                          turnTimeout: 5)
             let root = Store.root
 
@@ -245,8 +248,9 @@ struct InteractiveSeamTests {
             try rec.save()
             try Mailbox.create(rec.id)
 
-            let session = try CliSession(executable: agent, arguments: [],
-                                         environment: ["PATH": "/usr/bin:/bin"],
+            let session = try StreamJsonSession(
+                                         pipe: ContainedPipe(executable: agent, arguments: [],
+                                                            environment: ["PATH": "/usr/bin:/bin"]),
                                          turnTimeout: 5)
             let root = Store.root
 
@@ -309,8 +313,9 @@ struct InteractiveSeamTests {
             try rec.save()
             try Mailbox.create(rec.id)
 
-            let session = try CliSession(executable: agent, arguments: [],
-                                         environment: ["PATH": "/usr/bin:/bin"],
+            let session = try StreamJsonSession(
+                                         pipe: ContainedPipe(executable: agent, arguments: [],
+                                                            environment: ["PATH": "/usr/bin:/bin"]),
                                          turnTimeout: 5)
             let root = Store.root
 
@@ -323,7 +328,7 @@ struct InteractiveSeamTests {
                         // A long idle timeout: if the dispatch waits it out rather
                         // than noticing the death, this test hangs and says so.
                         conclusion.value = await InteractiveSession(record: rec, idleTimeout: 60)
-                            .run(isWorkerAlive: { session.workerAlive }) { session.turn($0) }
+                            .run(isWorkerAlive: { session.isAlive }) { session.turn($0) }
                         sem.signal()
                     }
                     sem.wait()
@@ -359,8 +364,9 @@ struct InteractiveSeamTests {
             try rec.save()
             try Mailbox.create(rec.id)
 
-            let session = try CliSession(executable: agent, arguments: [],
-                                         environment: ["PATH": "/usr/bin:/bin"],
+            let session = try StreamJsonSession(
+                                         pipe: ContainedPipe(executable: agent, arguments: [],
+                                                            environment: ["PATH": "/usr/bin:/bin"]),
                                          turnTimeout: 5)
             let root = Store.root
 

@@ -3,10 +3,13 @@ import Testing
 
 @testable import CoworkCore
 
-/// The generic `kind = "generic"` CLI descriptor: parsing every field, and the
-/// security + coherence guardrails an arbitrary-executable backend demands
-/// (origin gate, protected env keys, verdict/output coherence, built-in immutability).
-@Suite("Generic CLI descriptor config")
+/// The CLI descriptor: parsing every field, and the security + coherence guardrails
+/// an arbitrary-executable backend demands (origin gate, protected env keys,
+/// verdict/output coherence, an argv that really delivers the task).
+///
+/// There is no longer a privileged kind of row to contrast these against — every
+/// `[cli.*]` row is a descriptor, so every row is held to all of it.
+@Suite("CLI descriptor config")
 struct CliDescriptorConfigTests {
     private func write(_ text: String, to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
@@ -25,13 +28,12 @@ struct CliDescriptorConfigTests {
     }
 
     // Test 1
-    @Test("a generic row parses every descriptor field into a CliDescriptor")
+    @Test("a row parses every descriptor field into a CliDescriptor")
     func genericRowParsesAllFields() throws {
         try inTemporaryTree { global, _ in
             try write("""
             [cli.opencode]
             executable = "~/.opencode/bin/opencode"
-            kind = "generic"
             task_delivery = "argv"
             args = ["run", "{task}"]
             workspace_args = ["--cwd", "{workspace}"]
@@ -71,7 +73,7 @@ struct CliDescriptorConfigTests {
                 try write("""
                 [cli.x]
                 executable = "/opt/x/bin/x"
-                kind = "generic"
+                args = ["run", "{task}"]
                 \(field) = "\(value)"
                 """, to: global)
                 #expect(throws: ConfigError.self) { try Config.load(global: global, project: nil) }
@@ -80,14 +82,18 @@ struct CliDescriptorConfigTests {
     }
 
     // Test 2 — origin gate (RCE fix)
-    @Test("a project config may NOT declare a generic CLI (RCE origin gate)")
-    func projectGenericCliIsRefused() throws {
+    /// A CLI row authors argv and environment for an arbitrary executable — strictly
+    /// worse than the project-credential attack ADR 005 already refuses. With no
+    /// built-ins left there is no weaker "select a sealed dialect" row that could
+    /// safely be allowed, so the whole table kind is global-only. A project loses
+    /// nothing: it may still DISPATCH any globally-declared CLI by name.
+    @Test("a project config may NOT declare a CLI at all (RCE origin gate)")
+    func projectCliIsRefused() throws {
         try inTemporaryTree { global, project in
             try write("[provider.omlx]\nbase_url = \"http://x\"", to: global)
             try write("""
             [cli.evil]
             executable = "/bin/sh"
-            kind = "generic"
             task_delivery = "argv"
             args = ["-c", "{task}"]
             """, to: project)
@@ -95,18 +101,17 @@ struct CliDescriptorConfigTests {
         }
     }
 
-    @Test("a project config may still SELECT a built-in dialect")
-    func projectBuiltinIsAllowed() throws {
+    /// The minimal row too: refusal is about WHERE the row is, not how elaborate it
+    /// is, so a project cannot slip one past by declaring almost nothing.
+    @Test("even a bare project CLI row is refused")
+    func bareProjectCliIsRefused() throws {
         try inTemporaryTree { global, project in
             try write("[provider.omlx]\nbase_url = \"http://x\"", to: global)
             try write("""
-            [cli.claude]
-            executable = "/usr/bin/claude"
-            kind = "claude"
+            [cli.mine]
+            executable = "/usr/bin/mine"
             """, to: project)
-            let config = try Config.load(global: global, project: project)
-            #expect(config.cli["claude"]?.kind == .claude)
-            #expect(config.cli["claude"]?.descriptor == nil)
+            #expect(throws: ConfigError.self) { try Config.load(global: global, project: project) }
         }
     }
 
@@ -118,7 +123,7 @@ struct CliDescriptorConfigTests {
                 try write("""
                 [cli.x]
                 executable = "/opt/x/bin/x"
-                kind = "generic"
+                args = ["run", "{task}"]
                 output = "raw"
                 verdict = "exit_code"
 
@@ -133,7 +138,7 @@ struct CliDescriptorConfigTests {
             try write("""
             [cli.x]
             executable = "/opt/x/bin/x"
-            kind = "generic"
+            args = ["run", "{task}"]
             output = "raw"
             verdict = "exit_code"
 
@@ -150,6 +155,8 @@ struct CliDescriptorConfigTests {
     // Test 4 — coherence validation
     @Test("incoherent verdict/output (and {task} misuse) pairs are load errors")
     func incoherentPairsAreRefused() throws {
+        // Each body is INCOHERENT and nothing else: every row below carries a valid
+        // argv, so a refusal can only be the coherence rule under test.
         let bad = [
             "verdict = \"declared_result\"\noutput = \"raw\"",
             "verdict = \"stop_reason\"\noutput = \"raw\"",
@@ -162,7 +169,7 @@ struct CliDescriptorConfigTests {
                 try write("""
                 [cli.x]
                 executable = "/opt/x/bin/x"
-                kind = "generic"
+                args = ["run", "{task}"]
                 \(body)
                 """, to: global)
                 #expect(throws: ConfigError.self,
@@ -171,13 +178,13 @@ struct CliDescriptorConfigTests {
         }
     }
 
-    @Test("a coherent declared_result + stream_json_result generic row is accepted")
+    @Test("a coherent declared_result + stream_json_result row is accepted")
     func coherentPairIsAccepted() throws {
         try inTemporaryTree { global, _ in
             try write("""
             [cli.x]
             executable = "/opt/x/bin/x"
-            kind = "generic"
+            args = ["run", "{task}"]
             output = "stream_json_result"
             verdict = "declared_result"
             """, to: global)
@@ -199,7 +206,7 @@ struct CliDescriptorConfigTests {
             try write("""
             [cli.x]
             executable = "/opt/x/bin/x"
-            kind = "generic"
+            args = ["run", "{task}"]
             output = "json_field"
             output_field = "text"
             verdict = "stop_reason"
@@ -211,7 +218,7 @@ struct CliDescriptorConfigTests {
             try write("""
             [cli.x]
             executable = "/opt/x/bin/x"
-            kind = "generic"
+            args = ["run", "{task}"]
             output = "json_field"
             output_field = "text"
             verdict = "stop_reason"
@@ -236,27 +243,32 @@ struct CliDescriptorConfigTests {
         }
     }
 
-    // Test 5 — built-in immutability
-    @Test("a built-in row carrying a generic field is a load error")
-    func builtinCarryingGenericFieldIsRefused() throws {
+    // Test 5 — a row must actually be able to run
+    /// A row that describes no invocation used to fall back to a compiled-in wire.
+    /// With none left, an empty argv launches an interactive agent on a pipe that
+    /// never answers: the dispatch hangs to its deadline and reports a timeout. A
+    /// load error naming the missing key is the actionable version of that.
+    @Test("a row with no args is a load error, not an empty invocation")
+    func emptyArgsIsRefused() throws {
         try inTemporaryTree { global, _ in
             try write("""
-            [cli.claude]
-            executable = "/usr/bin/claude"
-            kind = "claude"
-            args = ["--hacked"]
+            [cli.bare]
+            executable = "/usr/bin/bare"
             """, to: global)
             #expect(throws: ConfigError.self) { try Config.load(global: global, project: nil) }
         }
     }
 
-    @Test("a generic row may not point at a built-in executable name")
-    func genericAtBuiltinExecutableIsRefused() throws {
+    /// The other half of the same hole: argv delivery with no `{task}` anywhere runs
+    /// the worker without ever telling it what to do. It exits 0, and an exit-code
+    /// verdict calls that a success — work reported done that was never asked for.
+    @Test("argv delivery with no {task} argument is a load error")
+    func argvWithoutTaskIsRefused() throws {
         try inTemporaryTree { global, _ in
             try write("""
-            [cli.sneaky]
-            executable = "/somewhere/claude"
-            kind = "generic"
+            [cli.silent]
+            executable = "/usr/bin/silent"
+            args = ["run", "--quiet"]
             output = "raw"
             verdict = "exit_code"
             """, to: global)
@@ -264,16 +276,22 @@ struct CliDescriptorConfigTests {
         }
     }
 
-    @Test("a plain built-in row (no generic fields) still resolves as today")
-    func builtinRowUnchanged() throws {
+    /// The executable's name says nothing about the wire any more, so a row may point
+    /// at any binary it likes — including one sharing a name with someone else's
+    /// agent. What it gets is exactly what it declared.
+    @Test("a row may point at any executable: the name carries no wire")
+    func anyExecutableIsAllowed() throws {
         try inTemporaryTree { global, _ in
             try write("""
-            [cli.grok]
-            executable = "/usr/local/bin/grok"
+            [cli.sneaky]
+            executable = "/somewhere/claude"
+            args = ["run", "{task}"]
+            output = "raw"
+            verdict = "exit_code"
             """, to: global)
             let config = try Config.load(global: global, project: nil)
-            #expect(config.cli["grok"]?.kind == .grok)
-            #expect(config.cli["grok"]?.descriptor == nil)
+            #expect(config.cli["sneaky"]?.descriptor.baseArguments == ["run", "{task}"])
+            #expect(config.cli["sneaky"]?.descriptor.verdict == .exitCode)
         }
     }
 
@@ -290,7 +308,7 @@ struct CliDescriptorConfigTests {
 
             [cli.x]
             executable = "/opt/x/bin/x"
-            kind = "generic"
+            args = ["run", "{task}"]
             output = "raw"
             verdict = "exit_code"
 

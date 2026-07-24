@@ -61,9 +61,51 @@ public struct CliDescriptor: Sendable, Equatable {
         public init(key: String, value: Value) { self.key = key; self.value = value }
     }
 
+    /// How a LIVE session is spoken to, when this CLI serves one at all.
+    ///
+    /// A session speaks a stateful wire, and cowork only knows three: the stream-json
+    /// stdin loop, ACP, and MCP. Config SELECTS one and says how to launch the process;
+    /// it never describes the wire, because each wire is tested Swift. The MCP tool
+    /// names are the single genuinely per-agent value — MCP fixes the envelope but not
+    /// which tool answers a prompt — so they are the only strings config supplies. The
+    /// RESULT shape stays in code: a config that could name the member a verdict is
+    /// read from would be authoring the success predicate (ADR 000).
+    public struct SessionSpec: Sendable, Equatable {
+        public enum Wire: String, Sendable, Equatable {
+            case streamJSON = "stream_json"
+            case acp = "acp"
+            case mcp = "mcp"
+        }
+        public let wire: Wire
+        public let arguments: [String]
+        /// Spliced into the spawn argv (with `{resume}`) when the dispatch resumes.
+        /// stream-json only: ACP mints its session id in `session/new`, and MCP's
+        /// continuation is the thread, so neither has anything to put on a command line.
+        public let resumeArguments: [String]
+        public let tool: String?          // mcp: the first turn's tool
+        public let replyTool: String?     // mcp: every later turn's tool
+        /// Static string arguments merged into the FIRST mcp turn — an agent's own
+        /// per-session switches (approval policy, sandbox mode) belong to the user's
+        /// config, not to cowork's code.
+        public let toolArguments: [String: String]
+
+        public init(wire: Wire, arguments: [String], resumeArguments: [String] = [],
+                    tool: String? = nil, replyTool: String? = nil,
+                    toolArguments: [String: String] = [:]) {
+            self.wire = wire
+            self.arguments = arguments
+            self.resumeArguments = resumeArguments
+            self.tool = tool
+            self.replyTool = replyTool
+            self.toolArguments = toolArguments
+        }
+    }
+
     /// Per-dispatch filesystem isolation: point `variable` at a fresh 0700 temp dir,
     /// optionally seeded by copying `seed` in. The runtime owns the lifecycle and
-    /// removes the dir on every exit path (generalises `CodexAgent.isolatedHome`).
+    /// removes the dir on every exit path. A `seed` that is a single file is how a
+    /// user hands a worker exactly one credential: cowork never copies one on its own
+    /// initiative, so this line is the only thing that puts a secret in there.
     public struct Isolation: Sendable, Equatable {
         public let variable: String
         public let seed: URL?
@@ -75,7 +117,7 @@ public struct CliDescriptor: Sendable, Equatable {
     public let workspaceArguments: [String]     // appended (with {workspace}) only when a workspace is granted
     public let resumeArguments: [String]         // appended (with {resume}) only when resuming; empty ⇒ no follow-up
     public let env: [EnvEntry]
-    public let prependExeDirToPath: Bool         // the only sanctioned way to touch PATH (reproduces grok)
+    public let prependExeDirToPath: Bool         // the only sanctioned way to touch PATH
     public let output: OutputMode
     public let continuationField: String?        // JSON key of the resume handle; nil ⇒ no follow-up
     public let verdict: VerdictStrategy
@@ -87,7 +129,9 @@ public struct CliDescriptor: Sendable, Equatable {
     /// It selects WHERE to read, never WHAT the reading means.
     public let stopReasonField: String
     public let isolate: Isolation?
-    public let deadlineDiagnostic: String
+    /// The live-session wire, or nil when this CLI is one-shot only. Its PRESENCE is
+    /// `supports_message` — there is no separate flag that could disagree with it.
+    public let session: SessionSpec?
     public let timeoutSeconds: Int
     public let cpuSeconds: Int
 
@@ -102,7 +146,7 @@ public struct CliDescriptor: Sendable, Equatable {
                 verdict: VerdictStrategy,
                 stopReasonField: String = "stopReason",
                 isolate: Isolation? = nil,
-                deadlineDiagnostic: String,
+                session: SessionSpec? = nil,
                 timeoutSeconds: Int = 1800,
                 cpuSeconds: Int = 1800) {
         self.taskDelivery = taskDelivery
@@ -116,7 +160,7 @@ public struct CliDescriptor: Sendable, Equatable {
         self.verdict = verdict
         self.stopReasonField = stopReasonField
         self.isolate = isolate
-        self.deadlineDiagnostic = deadlineDiagnostic
+        self.session = session
         self.timeoutSeconds = timeoutSeconds
         self.cpuSeconds = cpuSeconds
     }

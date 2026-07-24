@@ -21,11 +21,18 @@ struct ResolvedBackendTests {
         return url
     }
 
+    /// A row wired for the shape the test needs. `descriptor` defaults to the shipped
+    /// stream-json example, which is the shape with every capability wired.
     private func cliConfig(_ name: String, executable: URL,
-                           kind: CliDialect? = nil) -> Config {
-        let dialect = kind ?? CliDialect(executable: executable)
-        let cli = CliConfig(name: name, executable: executable, kind: dialect, origin: .global)
+                           descriptor: CliDescriptor? = nil) -> Config {
+        let d = descriptor ?? (try? ExampleConfig.descriptor("claude"))!
+        let cli = CliConfig(name: name, executable: executable, descriptor: d, origin: .global)
         return Config(providers: [:], cli: [name: cli], visible: [:])
+    }
+
+    /// The honest floor: a row that declares no session wire and no continuation.
+    private var oneShotOnly: CliDescriptor {
+        (try? ExampleConfig.descriptor("opencode"))!
     }
 
     private func endpointConfig(name: String = "omlx",
@@ -40,23 +47,25 @@ struct ResolvedBackendTests {
 
     // MARK: capability is operation presence
 
-    @Test("claude ops: one-shot, interactive, and follow-up are all present")
-    func claudeHasAllOps() throws {
-        let exe = try installedExecutable(named: "claude")
-        let backend = try #require(BackendResolver.resolve("claude", config: cliConfig("claude", executable: exe)))
+    @Test("a fully-wired row: one-shot, interactive, and follow-up are all present")
+    func fullyWiredHasAllOps() throws {
+        let exe = try installedExecutable(named: "agent")
+        let backend = try #require(BackendResolver.resolve("agent", config: cliConfig("agent", executable: exe)))
 
         #expect(backend.supportsMessage == true)
         #expect(backend.supportsFollowUp == true)
         #expect(backend.oneShot(DispatchContext()) != nil)
         #expect(backend.followUp(DispatchContext(resume: "sess")) != nil)
-        // interactiveSession may fail to spawn a real claude; presence is the non-nil factory.
+        // interactiveSession may fail to spawn the real binary; presence is the factory.
         #expect(backend.canOpenInteractiveSession == true)
     }
 
-    @Test("codex ops: interactive yes, follow-up no — derived from operations, not a Bool")
-    func codexNoFollowUp() throws {
-        let exe = try installedExecutable(named: "codex")
-        let backend = try #require(BackendResolver.resolve("codex", config: cliConfig("codex", executable: exe)))
+    @Test("a session-but-no-continuation row: interactive yes, follow-up no — from operations, not a Bool")
+    func sessionWithoutFollowUp() throws {
+        let exe = try installedExecutable(named: "agent")
+        let backend = try #require(BackendResolver.resolve(
+            "agent", config: cliConfig("agent", executable: exe,
+                                       descriptor: try ExampleConfig.descriptor("codex"))))
 
         #expect(backend.supportsMessage == true)
         #expect(backend.supportsFollowUp == false)
@@ -64,17 +73,21 @@ struct ResolvedBackendTests {
         #expect(backend.followUp(DispatchContext(resume: "thread")) == nil)
     }
 
-    @Test("unknown CLI driver: no operations, so no message and no follow-up")
-    func unknownDriverHasNoOps() throws {
-        let exe = try installedExecutable(named: "mystery-agent")
+    /// There is no longer an unrecognisable CLI — a row that cowork could not drive is
+    /// refused at load. What remains is the honest floor: a row that wires neither a
+    /// session nor a continuation is dispatchable and nothing else, and says so.
+    @Test("a one-shot-only row: dispatchable, but no message and no follow-up")
+    func oneShotOnlyHasOnlyDispatch() throws {
+        let exe = try installedExecutable(named: "plain-agent")
         let backend = try #require(BackendResolver.resolve(
-            "mystery", config: cliConfig("mystery", executable: exe)))
+            "plain", config: cliConfig("plain", executable: exe, descriptor: oneShotOnly)))
 
         #expect(backend.supportsMessage == false)
         #expect(backend.supportsFollowUp == false)
-        #expect(backend.oneShot(DispatchContext()) == nil)
+        #expect(backend.oneShot(DispatchContext()) != nil, "a wired row is always dispatchable")
         #expect(backend.followUp(DispatchContext()) == nil)
-        #expect(backend.diagnostics.contains("cli.driver-unknown"))
+        #expect(backend.diagnostics.contains("cli.session-code-only"))
+        #expect(backend.diagnostics.contains("cli.follow-up-not-wired"))
     }
 
     @Test("endpoint ops: interactive yes, follow-up no")
@@ -92,10 +105,11 @@ struct ResolvedBackendTests {
 
     @Test("facts() derives supports_message and supports_follow_up from operations")
     func factsDeriveFromOps() throws {
-        let claude = try installedExecutable(named: "claude")
-        let codex = try installedExecutable(named: "codex")
-        let c = try #require(BackendResolver.resolve("c", config: cliConfig("c", executable: claude)))
-        let x = try #require(BackendResolver.resolve("x", config: cliConfig("x", executable: codex)))
+        let exe = try installedExecutable(named: "agent")
+        let c = try #require(BackendResolver.resolve("c", config: cliConfig("c", executable: exe)))
+        let x = try #require(BackendResolver.resolve(
+            "x", config: cliConfig("x", executable: exe,
+                                   descriptor: try ExampleConfig.descriptor("codex"))))
 
         #expect(c.facts().supportsMessage == true)
         #expect(c.facts().supportsFollowUp == true)
@@ -106,8 +120,9 @@ struct ResolvedBackendTests {
     // MARK: bug (a) — workspace roots the CHILD PROCESS, not just context plumbing
 
     /// An interactive dispatch grants a workspace; the worker process must actually
-    /// run there. Claude has no protocol cwd flag — only process cwd can root it —
-    /// so this stand-in reports `os.getcwd()`, not a value echoed from DispatchContext.
+    /// run there. The stream-json row declares no protocol cwd flag — only process cwd
+    /// can root it — so this stand-in reports `os.getcwd()`, not a value echoed from
+    /// DispatchContext.
     @Test("interactive session for a CLI backend is rooted at the dispatch workspace")
     func interactiveSessionUsesDispatchWorkspace() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -121,8 +136,8 @@ struct ResolvedBackendTests {
         // Write outside the workspace so a wrong-cwd child can still create the proof file.
         let seenCwd = dir.appendingPathComponent("seen-process-cwd.txt")
 
-        // Stand-in claude: on start, record real process cwd; then honour stream-json.
-        let agent = dir.appendingPathComponent("claude")
+        // Stand-in worker: on start, record real process cwd; then honour stream-json.
+        let agent = dir.appendingPathComponent("agent")
         let script = """
         #!/usr/bin/env python3
         import os, sys
@@ -138,7 +153,7 @@ struct ResolvedBackendTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: agent.path)
 
         let backend = try #require(BackendResolver.resolve(
-            "claude", config: cliConfig("claude", executable: agent)))
+            "agent", config: cliConfig("agent", executable: agent)))
 
         let ctx = DispatchContext(workspace: workspace.path, resume: nil)
         let session = try #require(try backend.interactiveSession(ctx))
@@ -180,14 +195,13 @@ struct ResolvedBackendTests {
 
     // MARK: bug (b) — message capability is real, not existence
 
-    @Test("supportsMessage is false for a resolvable-but-unmessageable CLI (unknown driver)")
+    @Test("supportsMessage is false for a resolvable-but-unmessageable CLI")
     func supportsMessageIsNotMereExistence() throws {
-        let exe = try installedExecutable(named: "mystery-agent")
+        let exe = try installedExecutable(named: "plain-agent")
         // Existence-based check would say true (config has the name). Real capability
-        // is false: no SessionCapable agent, no interactive operation.
-        let backend = try #require(BackendResolver.resolve(
-            "mystery", config: cliConfig("mystery", executable: exe)))
-        #expect(BackendResolver.resolve("mystery", config: cliConfig("mystery", executable: exe)) != nil)
+        // is false: the row declares no session wire, so no interactive operation exists.
+        let config = cliConfig("plain", executable: exe, descriptor: oneShotOnly)
+        let backend = try #require(BackendResolver.resolve("plain", config: config))
         #expect(backend.supportsMessage == false)
     }
 

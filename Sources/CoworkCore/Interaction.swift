@@ -6,7 +6,7 @@ import Foundation
 /// These two tools exist because the alternative, when a running worker needs one
 /// extra detail or a change of direction, is to stop it and start again — throwing
 /// away its context and its work. The proven mechanism beneath them is real: a
-/// live Claude worker accepts further user messages on stdin, two messages eight
+/// live worker accepts further user messages on stdin, two messages eight
 /// seconds apart each producing their own declared result.
 ///
 /// Almost all of this file is refusals, deliberately. A `send` that cannot be

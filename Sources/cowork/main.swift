@@ -59,7 +59,7 @@ if let superviseID {
         resolve: { resolveBackend($0) })
 }
 
-// An `env:NAME` reference — a provider's `credential`, or a generic CLI's
+// An `env:NAME` reference — a provider's `credential`, or a CLI row's
 // `[cli.*.env]` value — names a variable in THIS process's environment. The
 // supervisor is a fresh process with a fresh environment, so it cannot resolve that
 // name unless the value travels with it: without this, a user who exports their key
@@ -92,7 +92,7 @@ let server = Server(name: "cowork", version: coworkVersion,
 
 /// A JSON-Schema string property. A tool's inputSchema must be a real JSON Schema:
 /// the top level is `{"type":"object","properties":{…}}` and every property is
-/// itself a schema object, not a bare description string. A strict MCP host (Claude
+/// itself a schema object, not a bare description string. A strict MCP host
 /// Code) rejects the whole tool list otherwise — proven live against a strict MCP host.
 @Sendable func strProp(_ description: String) -> Value {
     .object(["type": .string("string"), "description": .string(description)])

@@ -1,19 +1,18 @@
 import Darwin
 import Foundation
 
-/// A **live** grok ACP worker: spawned once, spoken to many times over JSON-RPC
-/// stdio (Agent Client Protocol).
+/// A **live** worker on ACP (the Agent Client Protocol): spawned once, spoken to
+/// many times over JSON-RPC stdio.
 ///
-/// This is what interactive `send`/`finish` needs from grok. One-shot
-/// `GrokOneShotDriver` spawns, runs one prompt, and exits — a driver that
-/// restarts per message has implemented `follow_up`, not `send`, because the
-/// worker would remember nothing.
+/// This is what interactive `send`/`finish` needs. A one-shot spawns, runs one
+/// prompt, and exits — a driver that restarts per message has implemented
+/// `follow_up`, not `send`, because the worker would remember nothing.
 ///
 /// Containment and line-oriented stdio live in `ContainedPipe`; this type only
 /// speaks the ACP JSON-RPC dialect on top of that pipe: `initialize` →
 /// `session/new` at start, then `session/prompt` per turn with
 /// `session/update` agent_message_chunk accumulation until the matching result.
-public final class GrokAcpSession: SessionTransport, @unchecked Sendable {
+public final class AcpSession: SessionTransport, @unchecked Sendable {
     private let pipe: ContainedPipe
     private let sessionId: String
     private let turnTimeout: TimeInterval

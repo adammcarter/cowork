@@ -1,42 +1,45 @@
 import Darwin
 import Foundation
 
-/// A **live** codex worker: spawned once as `codex mcp-server`, spoken to many times
-/// over MCP's JSON-RPC stdio.
+/// A **live** worker on MCP's JSON-RPC stdio: spawned once as the agent's own MCP
+/// server, spoken to many times.
 ///
-/// This is codex's half of interactive `send`/`finish`. Where grok's ACP session
-/// mints its `sessionId` up front in `session/new`, codex has no such call — the
+/// Where ACP mints a session id up front in `session/new`, MCP has no such call — the
 /// thread does not exist until the first turn, so `continuation` is nil until then
-/// and the first turn uses the `codex` tool while every later turn uses `codex-reply`
-/// with the captured `threadId`.
+/// and the first turn calls the descriptor's `tool` while every later turn calls its
+/// `reply_tool` with the captured thread.
 ///
 /// Containment and line-oriented stdio live in `ContainedPipe`; this type only speaks
 /// the MCP dialect on top of it: `initialize` + `notifications/initialized` at start,
-/// then a `tools/call` per turn, draining `codex/event*` notifications until the
-/// matching result. The assistant text is `result.structuredContent.content` and the
-/// continuation handle is `result.structuredContent.threadId` (both proven live).
-public final class CodexMcpSession: SessionTransport, @unchecked Sendable {
+/// then a `tools/call` per turn, draining progress notifications until the matching
+/// result. Only the two TOOL NAMES come from config — MCP fixes the envelope but not
+/// which tool answers a prompt. The RESULT shape stays here in code on purpose: a
+/// config that could name the member the verdict is read from would be authoring the
+/// success predicate, which ADR 000 reserves for reviewed Swift.
+public final class McpSession: SessionTransport, @unchecked Sendable {
     private let pipe: ContainedPipe
     private let cwd: String
+    private let spec: CliDescriptor.SessionSpec
     private let turnTimeout: TimeInterval
     /// Next JSON-RPC request id. Id 1 is consumed by the `initialize` handshake.
     private var nextId: Int = 2
-    /// The codex thread, captured from the first turn's result. Nil until then, which
-    /// is also how `turn` knows to call `codex` rather than `codex-reply`.
+    /// The worker's thread, captured from the first turn's result. Nil until then,
+    /// which is also how `turn` knows to call `tool` rather than `reply_tool`.
     private var threadId: String?
 
     public var isAlive: Bool { pipe.isAlive }
-    /// The codex `threadId` — the worker's continuation handle. Nil before the first
-    /// turn, because codex mints it as part of answering, not at session start.
+    /// The thread id — the worker's continuation handle. Nil before the first turn,
+    /// because MCP mints it as part of answering, not at session start.
     public var continuation: String? { threadId }
 
     /// Take ownership of an already-spawned contained pipe and complete the MCP
     /// handshake (`initialize` then the `notifications/initialized` notification)
     /// before the first turn.
-    public init(pipe: ContainedPipe, cwd: String,
+    public init(pipe: ContainedPipe, cwd: String, spec: CliDescriptor.SessionSpec,
                 turnTimeout: TimeInterval = 300) throws {
         self.pipe = pipe
         self.cwd = cwd
+        self.spec = spec
         self.turnTimeout = turnTimeout
         try Self.handshake(pipe: pipe, turnTimeout: turnTimeout)
     }
@@ -50,24 +53,28 @@ public final class CodexMcpSession: SessionTransport, @unchecked Sendable {
         pipe.close()
     }
 
-    /// One `tools/call` exchange. The first turn (no thread yet) calls the `codex`
-    /// tool; every later turn calls `codex-reply` with the captured `threadId`. The
-    /// reply text and the thread come back in the result's `structuredContent`;
-    /// `codex/event*` notifications streamed during the turn are progress noise and
-    /// are ignored — the result body is the answer.
+    /// One `tools/call` exchange. The first turn (no thread yet) calls the descriptor's
+    /// `tool`; every later turn calls its `reply_tool` with the captured `threadId`.
+    /// The reply text and the thread come back in the result; progress notifications
+    /// streamed during the turn are noise and are ignored — the result body is the
+    /// answer.
     public func turn(_ prompt: String) -> InteractiveSession.Turn {
         let requestId = nextId
         nextId += 1
 
-        let arguments: [String: Any]
+        var arguments: [String: Any]
         let toolName: String
         if let threadId {
-            toolName = "codex-reply"
+            toolName = spec.replyTool ?? ""
             arguments = ["threadId": threadId, "prompt": prompt]
         } else {
-            toolName = "codex"
-            arguments = ["prompt": prompt, "cwd": cwd,
-                         "approval-policy": "never", "sandbox": "danger-full-access"]
+            toolName = spec.tool ?? ""
+            // The agent's own per-session switches (approval policy, sandbox mode) are
+            // the user's to choose, so they ride along from config rather than being
+            // decided here for an agent cowork knows nothing about.
+            arguments = spec.toolArguments.mapValues { $0 as Any }
+            arguments["prompt"] = prompt
+            arguments["cwd"] = cwd
         }
         let message: [String: Any] = [
             "jsonrpc": "2.0",
@@ -92,7 +99,7 @@ public final class CodexMcpSession: SessionTransport, @unchecked Sendable {
             guard let obj = Self.parseJSON(line) else { continue }
 
             // Matching result ends the turn. Ignore results for any other id and every
-            // `codex/event` notification — out-of-order traffic must not steal the turn.
+            // progress notification — out-of-order traffic must not steal the turn.
             guard Self.matchesId(obj, requestId) else { continue }
 
             if let error = obj["error"] {
@@ -102,11 +109,15 @@ public final class CodexMcpSession: SessionTransport, @unchecked Sendable {
                              transcript: "", workerAlive: isAlive)
             }
 
-            let structured = (obj["result"] as? [String: Any])?["structuredContent"] as? [String: Any]
-            // Capture/refresh the thread so the next turn uses `codex-reply`.
+            let result = obj["result"] as? [String: Any]
+            let structured = result?["structuredContent"] as? [String: Any]
+            // Capture/refresh the thread so the next turn uses the reply tool.
             if let sid = structured?["threadId"] as? String, !sid.isEmpty { threadId = sid }
-            let text = (structured?["content"] as? String) ?? ""
-            let verdict = Verdict.mcp(hasContent: structured != nil, rpcError: nil)
+            let text = Self.assistantText(result: result, structured: structured)
+            // The TEXT is the verdict, not the presence of a member: a result object
+            // that carries no answer is an empty success, which is the exact lie this
+            // product exists to prevent.
+            let verdict = Verdict.mcp(hasContent: !text.isEmpty, rpcError: nil)
             var transcript = ""
             if !text.isEmpty { transcript += "said: \(text)\n" }
             return .init(state: verdict.state, text: text, diagnostics: verdict.diagnostics,
@@ -119,6 +130,22 @@ public final class CodexMcpSession: SessionTransport, @unchecked Sendable {
                      diagnostics: ["cli.mcp.no-declared-result",
                                    "cli.mcp.worker-exited-mid-turn"],
                      transcript: "", workerAlive: false)
+    }
+
+    /// The assistant's reply, from either shape MCP servers actually use: a plain
+    /// string under `structuredContent`, or the spec's own `content` array of typed
+    /// blocks. Reading only the first would silently return "" for every agent that
+    /// speaks the standard shape, and an empty answer is worse than an error.
+    private static func assistantText(result: [String: Any]?,
+                                      structured: [String: Any]?) -> String {
+        if let s = structured?["content"] as? String, !s.isEmpty { return s }
+        let blocks = (structured?["content"] as? [[String: Any]]) ?? (result?["content"] as? [[String: Any]])
+        let parts = (blocks ?? []).compactMap { block -> String? in
+            guard block["type"] as? String == "text" else { return nil }
+            let text = (block["text"] as? String) ?? ""
+            return text.isEmpty ? nil : text
+        }
+        return parts.joined(separator: "\n")
     }
 
     // MARK: - Handshake
@@ -136,8 +163,8 @@ public final class CodexMcpSession: SessionTransport, @unchecked Sendable {
             throw SessionError.handshakeFailed("initialize")
         }
 
-        // A notification (no id) completing the MCP handshake; codex expects it before
-        // it will accept a tools/call.
+        // A notification (no id) completing the MCP handshake; a server expects it
+        // before it will accept a tools/call.
         try writeNotification(pipe: pipe, method: "notifications/initialized")
     }
 
@@ -164,7 +191,7 @@ public final class CodexMcpSession: SessionTransport, @unchecked Sendable {
     }
 
     /// Read lines until a JSON-RPC **result** (or error) for `id` arrives.
-    /// Notifications (`codex/event*`) and unrelated traffic are skipped, not treated
+    /// Progress notifications and unrelated traffic are skipped, not treated
     /// as answers.
     private static func readResult(pipe: ContainedPipe, id: Int,
                                    deadline: Date) -> [String: Any]? {

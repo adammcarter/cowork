@@ -1,47 +1,35 @@
 import Darwin
 import Foundation
 
-/// A **live** CLI worker: spawned once, spoken to many times.
+/// A **live** worker on the line-delimited JSON turn wire: spawned once, spoken to
+/// many times, each turn ending at the worker's own declared `result` object.
 ///
-/// This is what `send` needs and what `CliBackend.run` cannot give it. `run`
-/// spawns, writes one message, closes stdin and waits for exit — a driver that
-/// restarts its worker per message has implemented `follow_up`, not `send`,
-/// because the worker would remember nothing.
-///
-/// Verified live: `claude -p --input-format stream-json` accepts further user
-/// messages on stdin while the session lives, each producing its own declared
-/// result. Two messages to one process, eight seconds apart, both answered.
+/// This is what `send` needs and what a one-shot run cannot give it. A run spawns,
+/// writes one message, closes stdin and waits for exit — a driver that restarts its
+/// worker per message has implemented `follow_up`, not `send`, because the worker
+/// would remember nothing.
 ///
 /// Containment and line-oriented stdio live in `ContainedPipe`; this type only
-/// speaks the claude stream-json dialect on top of that pipe.
-public final class CliSession: @unchecked Sendable {
+/// speaks the stream-json dialect on top of a pipe someone else spawned.
+public final class StreamJsonSession: SessionTransport, @unchecked Sendable {
     private let pipe: ContainedPipe
     /// The worker's own continuation handle, kept so an interactive dispatch can
     /// still be followed up after it concludes (ADR 001).
-    public private(set) var lastSessionID: String?
+    private var lastSessionID: String?
     private let turnTimeout: TimeInterval
 
     /// Whether the worker is still running. A dispatch whose worker has gone is
     /// over, whatever anyone still wants to send it.
-    public var workerAlive: Bool { pipe.isAlive }
+    public var isAlive: Bool { pipe.isAlive }
+    public var continuation: String? { lastSessionID }
 
-    /// - Parameter workingDirectory: Dispatch workspace grant, applied to the
-    ///   child at spawn. `nil` leaves the process in cowork's cwd.
-    public init(executable: URL, arguments: [String], environment: [String: String],
-                workingDirectory: String? = nil,
-                cpuSecondsLimit: rlim_t = 900, turnTimeout: TimeInterval = 300) throws {
-        do {
-            self.pipe = try ContainedPipe(executable: executable, arguments: arguments,
-                                          environment: environment,
-                                          workingDirectory: workingDirectory,
-                                          cpuSecondsLimit: cpuSecondsLimit)
-        } catch ContainedPipe.Error.spawnFailed(let rc) {
-            throw SessionError.spawnFailed(rc)
-        }
+    /// Take ownership of an already-spawned contained pipe, matching the other two
+    /// session wires — the spawn belongs to whoever read the descriptor, so all three
+    /// are constructed the same way and cannot drift apart.
+    public init(pipe: ContainedPipe, turnTimeout: TimeInterval = 300) throws {
+        self.pipe = pipe
         self.turnTimeout = turnTimeout
     }
-
-    public enum SessionError: Error { case spawnFailed(Int32) }
 
     /// Give the worker a prompt and read until it declares that turn's outcome.
     ///
@@ -54,15 +42,15 @@ public final class CliSession: @unchecked Sendable {
             "message": ["role": "user", "content": [["type": "text", "text": prompt]]],
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: message) else {
-            return .init(state: .failed, text: "", diagnostics: ["cli.message-unencodable"],
-                         transcript: "", workerAlive: workerAlive)
+            return .init(state: .failed, text: "", diagnostics: ["cli.stream-json.message-unencodable"],
+                         transcript: "", workerAlive: isAlive)
         }
         do { try pipe.writeLine(data) } catch {
             // The worker is gone, or its stdin is closed. Either way this dispatch
             // cannot continue, and saying so beats waiting for a reply that will
             // never come.
             pipe.markExited()
-            return .init(state: .failed, text: "", diagnostics: ["cli.worker-unreachable"],
+            return .init(state: .failed, text: "", diagnostics: ["cli.stream-json.worker-unreachable"],
                          transcript: "", workerAlive: false)
         }
 
@@ -95,7 +83,7 @@ public final class CliSession: @unchecked Sendable {
                                                      exitCode: 0)
                 lastSessionID = sessionID
                 return .init(state: verdict.state, text: result, diagnostics: verdict.diagnostics,
-                             transcript: transcript, workerAlive: workerAlive)
+                             transcript: transcript, workerAlive: isAlive)
             default:
                 break
             }
@@ -106,7 +94,8 @@ public final class CliSession: @unchecked Sendable {
         // not an outcome (ADR 000), so this is a failure that names itself.
         lastSessionID = sessionID
         return .init(state: .failed, text: result,
-                     diagnostics: ["cli.no-declared-result", "cli.worker-exited-mid-turn"],
+                     diagnostics: ["cli.stream-json.no-declared-result",
+                                   "cli.stream-json.worker-exited-mid-turn"],
                      transcript: transcript, workerAlive: false)
     }
 

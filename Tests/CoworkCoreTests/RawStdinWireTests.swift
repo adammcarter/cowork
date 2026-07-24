@@ -3,18 +3,17 @@ import Testing
 
 @testable import CoworkCore
 
-/// Codex's one-shot wire: `codex exec`, the task on stdin. The third stdin shape
-/// (claude: a JSON envelope; grok: nothing; codex: the raw task).
+/// The raw-stdin one-shot wire: the task written verbatim to stdin, the whole stdout
+/// taken as the answer, the exit code as the only signal. The third stdin shape (a
+/// JSON envelope; nothing at all; the raw task).
 ///
-/// These assertions are the FROZEN PIN for codex's wire. They were written against
-/// the hand-written `CodexOneShotDriver` and proven identical to `ConfiguredDriver`
-/// interpreting `BuiltinDescriptors.codex` before that driver was deleted — so the
-/// subject changed and not one expectation did. A descriptor drift breaks these.
-@Suite("Codex built-in wire")
-struct CodexOneShotDriverTests {
-    private let driver = ConfiguredDriver(name: "codex",
-                                          executable: URL(fileURLWithPath: "/usr/local/bin/codex"),
-                                          descriptor: BuiltinDescriptors.codex)
+/// These assertions are the FROZEN PIN for this shape. They were written against a
+/// hand-written driver, proven identical to `ConfiguredDriver`, and now run against
+/// the descriptor the shipped example config declares. A descriptor drift breaks
+/// these — which is now also a drift in the file users copy.
+@Suite("raw-stdin one-shot wire")
+struct RawStdinWireTests {
+    private let driver = try! ExampleConfig.driver("codex")
 
     @Test("invocation is `codex exec` — bypassing codex's own trust/sandbox, which cowork already provides — with the raw task on stdin")
     func invocationShape() {
@@ -56,8 +55,8 @@ struct CodexOneShotDriverTests {
         #expect(outcome.diagnostics.contains("exit=3"))
     }
 
-    @Test("the deadline diagnostic is codex's own")
+    @Test("a deadline is a deadline, whichever CLI hit it")
     func deadlineDiagnostic() {
-        #expect(driver.deadlineDiagnostic == "cli.codex.deadline")
+        #expect(driver.deadlineDiagnostic == "cli.deadline")
     }
 }

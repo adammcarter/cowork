@@ -31,8 +31,8 @@ public protocol CliProcessSpawning: Sendable {
 /// — and defers the two things that actually differ to an `OneShotDriver`: how to
 /// invoke, and how to parse.
 ///
-/// One type replaces `CliBackend` and `GrokBackend`. A new agent is a driver plus a
-/// registry line, with no new runner and no engine `switch`.
+/// One type replaces every per-agent backend. A new agent is a config row, with no
+/// new runner, no new driver, and no engine `switch`.
 public struct CliRunner: Sendable {
     public let executable: URL
     public let driver: OneShotDriver
@@ -81,11 +81,11 @@ public struct CliRunner: Sendable {
 
     /// A sanitized environment is an allowlist, not a denylist (ADR 003): the child
     /// inherits nothing it was not explicitly given. Each entry is here because the
-    /// agent provably needs it — USER lets Claude Code reach its Keychain
+    /// agent provably needs it — USER is what lets an agent reach its Keychain
     /// credentials, without which it reports "Not logged in". Lineage (ADR 001) is
     /// derived, not asserted: a worker that itself calls cowork is attributed
-    /// automatically because it inherits these. A dialect's `extraEnvironment`
-    /// overrides an entry by key (grok prepends its bin dir to PATH).
+    /// automatically because it inherits these. A row's `extraEnvironment` overrides
+    /// an entry by key, which is how an agent gets its bin dir at the head of PATH.
     static func environment(extra: [String]) -> [String] {
         var environment = [
             "PATH=/usr/bin:/bin:/usr/sbin:/sbin",

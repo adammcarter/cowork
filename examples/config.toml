@@ -1,0 +1,100 @@
+# Example ~/.cowork/config.toml
+#
+# Cowork ships no built-in agents. Every CLI backend is a row here, and a row is
+# the whole truth about its agent: how to launch it, where the task goes, how to
+# read the answer, and which tested verdict rule judges the outcome. Nothing is
+# inferred from the row's name — cowork cannot recognise an agent, so it can never
+# mis-recognise one either.
+#
+# Copy the rows for the agents you actually have installed and fix the paths.
+# CLI rows are global-only: a project's cowork.toml may DISPATCH any of these by
+# name, but may not declare one (a row authors argv and env for an arbitrary
+# executable, so a cloned repo must not be able to introduce one).
+#
+# The four rows below are the four shapes cowork supports, one each. They are also
+# the shapes its wire tests are pinned against.
+
+# ---------------------------------------------------------------------------
+# Shape 1: stream-json in and out. The task is a JSON user-message envelope on
+# stdin; the answer and the verdict come from the final `result` object; the
+# session is the same wire kept warm.
+# ---------------------------------------------------------------------------
+[cli.claude]
+executable = "~/.local/bin/claude"
+args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk", "--allowed-tools", "Read", "Write", "--strict-mcp-config"]
+task_delivery = "stdin_json_stream_user"
+output = "stream_json_result"
+continuation_field = "session_id"
+resume_args = ["--resume", "{resume}"]
+verdict = "declared_result"
+
+  [cli.claude.session]
+  protocol = "stream_json"
+  args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk", "--allowed-tools", "Read", "Write", "--strict-mcp-config"]
+  resume_args = ["--resume", "{resume}"]
+
+# ---------------------------------------------------------------------------
+# Shape 2: task in argv, one JSON object out. The verdict is read from the field
+# that declares why generation stopped; the live session speaks ACP.
+# ---------------------------------------------------------------------------
+[cli.grok]
+executable = "~/.grok/bin/grok"
+args = ["-p", "{task}", "--output-format", "json", "--no-auto-update", "--always-approve"]
+task_delivery = "argv"
+workspace_args = ["--cwd", "{workspace}"]
+resume_args = ["-r", "{resume}"]
+prepend_exe_dir_to_path = true
+output = "json_field"
+output_field = "text"
+continuation_field = "sessionId"
+verdict = "stop_reason"
+stop_reason_field = "stopReason"
+
+  # Without this the worker imports the host's MCP servers — cowork among them —
+  # and a subagent can reach back into the session that spawned it.
+  [cli.grok.env]
+  GROK_CLAUDE_MCPS_ENABLED = "false"
+
+  [cli.grok.session]
+  protocol = "acp"
+  args = ["agent", "--always-approve", "stdio"]
+
+# ---------------------------------------------------------------------------
+# Shape 3: raw task on stdin, raw answer on stdout, judged by exit code alone —
+# honest only because this agent declares nothing cowork could read instead. The
+# live session speaks MCP, so the two tool names are config values.
+# ---------------------------------------------------------------------------
+[cli.codex]
+executable = "~/.local/bin/codex"
+args = ["exec", "--ignore-user-config", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check"]
+task_delivery = "stdin_raw"
+workspace_args = ["-C", "{workspace}"]
+output = "raw"
+verdict = "exit_code"
+
+  # An explicit, user-authored credential seed. Cowork never copies a credential
+  # on its own initiative: this line is the only reason the worker's throwaway
+  # home holds an auth file at all, and the runner deletes that home on every
+  # exit path — success, failure and timeout alike.
+  [cli.codex.isolate]
+  var = "CODEX_HOME"
+  seed = "~/.codex/auth.json"
+
+  [cli.codex.session]
+  protocol = "mcp"
+  args = ["mcp-server"]
+  tool = "codex"
+  reply_tool = "codex-reply"
+  tool_args = { approval-policy = "never", sandbox = "danger-full-access" }
+
+# ---------------------------------------------------------------------------
+# Shape 4: one-shot only. No [session] block, so `supports_message` is false and
+# `send` is refused with `cli.session-code-only` — never silently degraded into
+# a fresh one-shot that would remember nothing.
+# ---------------------------------------------------------------------------
+[cli.opencode]
+executable = "/opt/homebrew/bin/opencode"
+args = ["run", "{task}"]
+task_delivery = "argv"
+output = "raw"
+verdict = "exit_code"

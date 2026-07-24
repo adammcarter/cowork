@@ -278,53 +278,62 @@ struct ConfigTests {
     func cliAgentsAreConfigured() throws {
         try inTemporaryTree { global, _ in
             try write("""
-            [cli.claude]
-            executable = "~/.local/bin/claude"
+            [cli.mine]
+            executable = "~/.local/bin/mine"
+            args = ["run", "{task}"]
             """, to: global)
 
             let config = try Config.load(global: global, project: nil)
-            #expect(config.cli["claude"]?.executable.path.hasSuffix(".local/bin/claude") == true)
-            #expect(config.cli["claude"]?.executable.path.contains("~") == false, "~ must be expanded")
+            #expect(config.cli["mine"]?.executable.path.hasSuffix(".local/bin/mine") == true)
+            #expect(config.cli["mine"]?.executable.path.contains("~") == false, "~ must be expanded")
         }
     }
 
-    /// One identity type now: a cli's kind is a `CliDialect`, gaining codex. An
-    /// explicit kind is parsed; an omitted one is derived from the executable, so a
-    /// grok binary is grok without the user having to also say so.
-    @Test("a cli's dialect is parsed when given and derived from the executable when omitted")
-    func cliDialectParsedOrDerived() throws {
+    /// Nothing about the wire is inferred from the row's name any more. Two rows named
+    /// after nothing in particular, pointing at differently-named binaries, get exactly
+    /// the wires they declared — which is what makes a mislabelled binary impossible.
+    @Test("the wire comes from the row's own declaration, never from its name")
+    func wireComesFromTheDeclarationNotTheName() throws {
         try inTemporaryTree { global, _ in
             try write("""
-            [cli.grok]
-            executable = "/opt/grok/bin/grok"
-            kind = "grok"
+            [cli.alpha]
+            executable = "/opt/one/bin/zeta"
+            args = ["-p", "{task}"]
+            output = "raw"
+            verdict = "exit_code"
 
-            [cli.claude]
-            executable = "/usr/bin/claude"
-
-            [cli.codex]
-            executable = "/usr/local/bin/codex"
-            kind = "codex"
+            [cli.beta]
+            executable = "/opt/two/bin/alpha"
+            args = ["exec"]
+            task_delivery = "stdin_raw"
+            output = "raw"
+            verdict = "exit_code"
             """, to: global)
 
             let config = try Config.load(global: global, project: nil)
-            #expect(config.cli["grok"]?.kind == .grok)
-            #expect(config.cli["claude"]?.kind == .claude, "no kind: derived from the executable")
-            #expect(config.cli["codex"]?.kind == .codex, "the identity type gained codex")
+            #expect(config.cli["alpha"]?.descriptor.taskDelivery == .argv)
+            #expect(config.cli["beta"]?.descriptor.taskDelivery == .stdinRaw,
+                    "an executable named after another row changes nothing: only the declaration counts")
         }
     }
 
-    @Test("an explicit but unrecognised cli kind is a config error the user can act on")
-    func unknownCliKindIsAnError() throws {
-        try inTemporaryTree { global, _ in
-            try write("""
-            [cli.weird]
-            executable = "/usr/bin/weird"
-            kind = "banana"
-            """, to: global)
+    /// `kind` used to select one of three compiled-in wires. Ignoring a leftover one
+    /// would hand the user an agent launched with a wire it does not speak, so it is
+    /// named as an error the user can act on rather than dropped in silence.
+    @Test("a leftover kind is a config error the user can act on")
+    func leftoverKindIsAnError() throws {
+        for kind in ["claude", "generic", "banana"] {
+            try inTemporaryTree { global, _ in
+                try write("""
+                [cli.weird]
+                executable = "/usr/bin/weird"
+                args = ["run", "{task}"]
+                kind = "\(kind)"
+                """, to: global)
 
-            #expect(throws: ConfigError.self) {
-                _ = try Config.load(global: global, project: nil)
+                #expect(throws: ConfigError.self) {
+                    _ = try Config.load(global: global, project: nil)
+                }
             }
         }
     }

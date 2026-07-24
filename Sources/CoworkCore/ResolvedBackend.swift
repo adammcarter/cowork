@@ -82,7 +82,7 @@ public struct ResolvedBackend: Sendable {
     }
 
     /// Fire-and-forget execution. `nil` when this backend cannot be dispatched one-shot
-    /// (unknown CLI driver).
+    /// (an endpoint whose dialect is unsupported).
     public func oneShot(_ ctx: DispatchContext) -> ResolvedOneShot? {
         makeOneShot?(ctx)
     }
@@ -162,22 +162,10 @@ public enum BackendResolver {
             diagnostics += ["cli.executable-absent", "path=\(cli.executable.path)"]
         }
 
-        let executableDialect = CliDialect(executable: cli.executable)
-        if case .unknown = executableDialect {
-            // no recognised identity to disagree with — the kind fallback governs
-        } else if cli.kind != executableDialect {
-            diagnostics += ["cli.kind-mismatch", "configured=\(cli.kind.name)",
-                            "executable=\(executableDialect.name)"]
-        }
-
-        guard let agent = CliRegistry.agent(for: cli) else {
-            diagnostics += ["cli.driver-unknown",
-                            "executable=\(cli.executable.lastPathComponent.lowercased())"]
-            return ResolvedBackend(
-                id: cli.name, kind: .cli, origin: cli.origin,
-                available: available, diagnostics: diagnostics,
-                oneShot: nil, interactive: nil, followUp: nil)
-        }
+        // Every row carries its own wire, so there is no longer such a thing as a CLI
+        // cowork cannot drive: an unusable row is refused at LOAD, which is earlier and
+        // louder than a probe-time "driver unknown" the user only sees if they ask.
+        let agent = ConfiguredAgent(cli)
 
         // Blockers explain a missing operation; they are not a second capability source.
         if !agent.isSessionCapable { diagnostics += agent.messageBlocker }
@@ -190,11 +178,7 @@ public enum BackendResolver {
         // factories themselves stay @Sendable (the agent existential is not).
         let cliConfig = cli
         let oneShot: @Sendable (DispatchContext) -> ResolvedOneShot = { ctx in
-            guard let agent = CliRegistry.agent(for: cliConfig) else {
-                return ResolvedOneShot { _, _ in
-                    (.failed, "", ["cli.driver-unknown"], "", nil)
-                }
-            }
+            let agent = ConfiguredAgent(cliConfig)
             let runner = CliRunner(executable: cliConfig.executable, driver: agent.oneShot(),
                                    spawn: ContainedProcessSpawner(),
                                    cpuSecondsLimit: rlim_t(agent.descriptor.cpuSeconds),
@@ -208,13 +192,7 @@ public enum BackendResolver {
 
         let interactive: (@Sendable (DispatchContext) throws -> SessionTransport)?
         if agent.isSessionCapable {
-            interactive = { ctx in
-                guard let sessionAgent = CliRegistry.agent(for: cliConfig), sessionAgent.isSessionCapable else {
-                    // Registry and the resolve-time check disagreed — refuse rather than crash.
-                    throw CliSession.SessionError.spawnFailed(-1)
-                }
-                return try sessionAgent.makeSession(ctx)
-            }
+            interactive = { ctx in try ConfiguredAgent(cliConfig).makeSession(ctx) }
         } else {
             interactive = nil
         }

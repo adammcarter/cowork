@@ -9,8 +9,8 @@ import Testing
 /// These use a stand-in agent rather than a real CLI, deliberately: the mechanism
 /// is what is under test, and a real model's latency would hide a hang behind a
 /// plausible wait. The stand-in answers instantly, so anything slow is a bug.
-@Suite("CliSession", .serialized)
-struct CliSessionTests {
+@Suite("StreamJsonSession", .serialized)
+struct StreamJsonSessionTests {
     /// The smallest thing that honours the stream-json contract: read a line,
     /// declare a result, stay alive for the next.
     ///
@@ -44,8 +44,9 @@ struct CliSessionTests {
             print('{"type":"result","session_id":"fake-1","subtype":"success","is_error":false,"result":"turn %d"}' % n, flush=True)
         """)
 
-        let session = try CliSession(executable: agent, arguments: [],
-                                     environment: ["PATH": "/usr/bin:/bin"],
+        let session = try StreamJsonSession(
+                                     pipe: ContainedPipe(executable: agent, arguments: [],
+                                                        environment: ["PATH": "/usr/bin:/bin"]),
                                      turnTimeout: 5)
         defer { session.close() }
 
@@ -74,8 +75,9 @@ struct CliSessionTests {
             pass
         """)
 
-        let session = try CliSession(executable: agent, arguments: [],
-                                     environment: ["PATH": "/usr/bin:/bin"],
+        let session = try StreamJsonSession(
+                                     pipe: ContainedPipe(executable: agent, arguments: [],
+                                                        environment: ["PATH": "/usr/bin:/bin"]),
                                      turnTimeout: 2)
         defer { session.close() }
 
@@ -95,8 +97,9 @@ struct CliSessionTests {
         sys.stdin.readline()
         """)
 
-        let session = try CliSession(executable: agent, arguments: [],
-                                     environment: ["PATH": "/usr/bin:/bin"],
+        let session = try StreamJsonSession(
+                                     pipe: ContainedPipe(executable: agent, arguments: [],
+                                                        environment: ["PATH": "/usr/bin:/bin"]),
                                      turnTimeout: 5)
         defer { session.close() }
 
@@ -118,12 +121,13 @@ struct CliSessionTests {
             print('{"type":"result","session_id":"sess-xyz","subtype":"success","is_error":false,"result":"ok"}', flush=True)
         """)
 
-        let session = try CliSession(executable: agent, arguments: [],
-                                     environment: ["PATH": "/usr/bin:/bin"],
+        let session = try StreamJsonSession(
+                                     pipe: ContainedPipe(executable: agent, arguments: [],
+                                                        environment: ["PATH": "/usr/bin:/bin"]),
                                      turnTimeout: 5)
         defer { session.close() }
         _ = session.turn("hi")
-        #expect(session.lastSessionID == "sess-xyz")
+        #expect(session.continuation == "sess-xyz")
     }
 
     @Test("close leaves nothing running")
@@ -137,12 +141,13 @@ struct CliSessionTests {
             print('{"type":"result","subtype":"success","is_error":false,"result":"ok"}', flush=True)
         """)
 
-        let session = try CliSession(executable: agent, arguments: [],
-                                     environment: ["PATH": "/usr/bin:/bin"],
+        let session = try StreamJsonSession(
+                                     pipe: ContainedPipe(executable: agent, arguments: [],
+                                                        environment: ["PATH": "/usr/bin:/bin"]),
                                      turnTimeout: 5)
         _ = session.turn("hi")
-        #expect(session.workerAlive)
+        #expect(session.isAlive)
         session.close()
-        #expect(!session.workerAlive, "a dispatch that ends must leave no worker behind")
+        #expect(!session.isAlive, "a dispatch that ends must leave no worker behind")
     }
 }

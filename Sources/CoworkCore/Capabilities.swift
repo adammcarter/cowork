@@ -12,8 +12,8 @@ import Foundation
 /// fail; a cached "available" would be fast and would be a lie, so nothing here
 /// is cached.
 ///
-/// **Differences are reported, not flattened.** A Claude worker can be messaged
-/// mid-session and `codex exec` cannot, so `supportsMessage` is true for one and
+/// **Differences are reported, not flattened.** One worker can be messaged
+/// mid-session and another cannot, so `supportsMessage` is true for one and
 /// false for the other in the same report. Anywhere cowork cannot honestly claim
 /// a capability, it says false and says why, rather than promising a mechanism it
 /// has not got.

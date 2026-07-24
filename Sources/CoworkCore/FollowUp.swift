@@ -8,7 +8,7 @@ import Foundation
 /// mechanisms — stdin versus `--resume` — and they fail in different ways, so
 /// collapsing them would mean lying about one of them.
 ///
-/// Everything here rests on one proven fact: `claude -p --resume <session_id>`
+/// Everything here rests on one proven fact: an agent resumed with its own handle
 /// genuinely carries context. A second dispatch recalled a codeword given only to
 /// the first. Without a handle like that, a follow-up is impossible — and cowork
 /// refuses rather than quietly starting fresh.

@@ -37,7 +37,7 @@ public struct DispatchRecord: Codable, Sendable {
     /// starts, so reconciliation can always tell abandoned from running.
     public var ownerPID: pid_t?
     public var ownerStart: Int64?
-    /// The backend's own handle for continuing THIS dispatch's context — Claude's
+    /// The backend's own handle for continuing THIS dispatch's context — the
     /// session id, for instance. Earned when the dispatch ends. Captured because
     /// `follow_up` is impossible without it, and faking a follow-up that silently
     /// forgot everything would be the exact lie ADR 000 forbids. Absent means this
@@ -136,6 +136,11 @@ public enum Lineage {
     public static var parent: String {
         let env = ProcessInfo.processInfo.environment
         if let d = env["COWORK_DISPATCH_ID"] { return d }          // nested: a worker dispatching
+        // NAME EXEMPTION, deliberate and narrow. These two name the HOSTS cowork can
+        // be running inside, not backends it dispatches — which variable a host
+        // exports is a fact about the world, not a preference, and moving it into
+        // config would silently lose lineage whenever the guess was wrong. No other
+        // agent name belongs anywhere in Sources/.
         if let s = env["CLAUDE_SESSION_ID"] { return "s_claude_\(String(s.prefix(8)))" }
         if let s = env["CODEX_SESSION_ID"] { return "s_codex_\(String(s.prefix(8)))" }
         return "s_unknown"

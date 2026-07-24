@@ -12,8 +12,7 @@ public enum ConfigError: Error, CustomStringConvertible {
     case projectNamedCredential(provider: String, credential: String)
     case credentialNotAReference(provider: String)
     case unknownProfile(String)
-    case projectGenericCli(String)
-    case builtinImmutable(cli: String)
+    case projectCli(String)
     case protectedEnvKey(cli: String, key: String)
 
     public var description: String {
@@ -33,19 +32,13 @@ public enum ConfigError: Error, CustomStringConvertible {
                 'env:NAME'. A config file holds a pointer, never a secret.
                 """
         case let .unknownProfile(name): return "config.unknown-profile: \(name)"
-        case let .projectGenericCli(name):
+        case let .projectCli(name):
             return """
-                config.project-generic-cli-refused: project cli '\(name)' declares a \
-                generic descriptor (kind='generic' or a descriptor field). A generic CLI \
-                spawns an arbitrary executable with arbitrary argv/env, so a cloned repo \
-                may not introduce one — define it in ~/.cowork/config.toml instead. A \
-                project cli may only SELECT a built-in (kind='claude'|'grok'|'codex').
-                """
-        case let .builtinImmutable(cli):
-            return """
-                config.builtin-immutable: cli '\(cli)' is a built-in (claude/grok/codex) \
-                yet carries a generic descriptor field. Built-in dialects are sealed; use \
-                kind='generic' with a non-built-in executable to wire a custom CLI.
+                config.project-cli-refused: project cli '\(name)' declares a CLI backend. \
+                A CLI row authors argv and environment for an arbitrary executable, so a \
+                cloned repo may not introduce one — declare it in ~/.cowork/config.toml. \
+                A project may dispatch any globally-declared CLI by name without \
+                declaring anything.
                 """
         case let .protectedEnvKey(cli, key):
             return """
@@ -68,25 +61,20 @@ public struct ProviderConfig: Equatable, Sendable {
     public let origin: Origin
 }
 
+/// One CLI backend as the user declared it. There is no second, code-resident kind
+/// of CLI any more: a row IS its descriptor, so the name on the row is a label for
+/// dispatch and nothing about the wire can be inferred from it. That is the point —
+/// cowork cannot recognise an agent, so it cannot mis-recognise one either.
 public struct CliConfig: Equatable, Sendable {
     public let name: String
     public let executable: URL
-    /// Which installed agent this is — one identity type, `CliDialect`, shared with
-    /// capabilities and dispatch (it replaces the old split-brain `CliConfig.Kind`).
-    /// Given explicitly as `kind = "claude" | "grok" | "codex"`, or derived from the
-    /// executable when omitted. Cowork dispatches by the *executable's* dialect; a
-    /// configured kind that disagrees is reported as a mismatch, not obeyed.
-    public let kind: CliDialect
-    /// The declarative wire for a `kind = "generic"` row; nil for a built-in, which
-    /// resolves to a sealed `BuiltinDescriptors` constant instead.
-    public let descriptor: CliDescriptor?
+    public let descriptor: CliDescriptor
     public let origin: ProviderConfig.Origin
 
-    public init(name: String, executable: URL, kind: CliDialect,
-                descriptor: CliDescriptor? = nil, origin: ProviderConfig.Origin) {
+    public init(name: String, executable: URL,
+                descriptor: CliDescriptor, origin: ProviderConfig.Origin) {
         self.name = name
         self.executable = executable
-        self.kind = kind
         self.descriptor = descriptor
         self.origin = origin
     }
@@ -160,7 +148,7 @@ public struct Config: Sendable {
                 names.insert(String(ref.dropFirst(4)))
             }
         }
-        for entry in cli.values.compactMap(\.descriptor).flatMap(\.env) {
+        for entry in cli.values.map(\.descriptor).flatMap(\.env) {
             if case let .reference(name) = entry.value { names.insert(name) }
         }
         return names
@@ -223,69 +211,35 @@ public struct Config: Sendable {
         return v
     }
 
-    // The descriptor-only keys. Their presence on a NON-generic (built-in) row is a
-    // load error (built-ins are sealed); `kind = "generic"` opts in to them.
-    private static let genericFieldKeys = [
-        "task_delivery", "args", "workspace_args", "resume_args", "output", "output_field",
-        "continuation_field", "verdict", "stop_reason_field", "env", "isolate",
-        "prepend_exe_dir_to_path",
-        "deadline_diagnostic", "timeout_seconds", "cpu_seconds",
-    ]
-
-    /// One `[cli.*]` table as a `CliConfig` — a sealed built-in, or a `kind='generic'`
-    /// descriptor. The generic path carries the security guardrails an arbitrary
-    /// executable demands: it is global-origin only (a cloned repo cannot introduce
-    /// one), its env may not touch execution-sensitive keys, and its verdict/output
-    /// pairing must be coherent so a mismatch cannot degrade to a permanent silent
-    /// failure.
+    /// One `[cli.*]` table as a `CliConfig`. Every row is now a full descriptor, so
+    /// every row carries the guardrails an arbitrary executable demands: it is
+    /// global-origin only (a cloned repo cannot introduce one), its env may not touch
+    /// execution-sensitive keys, and its verdict/output pairing must be coherent so a
+    /// mismatch cannot degrade to a permanent silent failure.
     private static func cliConfig(name: String, table: [String: Any],
                                   origin: ProviderConfig.Origin) throws -> CliConfig {
-        let executable = expand(try string(table, "executable", name))
-        let kindRaw = table["kind"] as? String
-        let hasGenericField = genericFieldKeys.contains { table[$0] != nil }
-
 //: @use-case:cli.generic.project_config_may_not_wire_a_generic_cli#origin_gate
-        if kindRaw == "generic" {
-            // ORIGIN GATE: a generic descriptor authors argv+env for an arbitrary
-            // binary — strictly worse than the project-credential attack ADR 005
-            // already refuses. A project may only SELECT a built-in.
-            guard origin == .global else { throw ConfigError.projectGenericCli(name) }
-            // A generic row may not point at a built-in executable name: that would
+        // ORIGIN GATE: a CLI row authors argv+env for an arbitrary binary — strictly
+        // worse than the project-credential attack ADR 005 already refuses. With no
+        // built-ins left there is no longer a weaker "select a sealed dialect" row a
+        // project could safely be allowed, so the whole table kind is global-only.
+        guard origin == .global else { throw ConfigError.projectCli(name) }
 //: @use-case:end cli.generic.project_config_may_not_wire_a_generic_cli#origin_gate
-//: @use-case:cli.generic.builtin_wire_is_sealed_from_config#builtin_sealed
-            // let config re-author a sealed dialect's wire.
-            guard case .unknown = CliDialect(executable: executable) else {
-                throw ConfigError.builtinImmutable(cli: name)
-            }
-            let descriptor = try parseDescriptor(name: name, table: table, executable: executable)
-            return CliConfig(name: name, executable: executable,
-                             kind: CliDialect(executable: executable),
-                             descriptor: descriptor, origin: origin)
-        }
-
-        // Built-in row: sealed. Any descriptor field is a load error.
-        guard !hasGenericField else { throw ConfigError.builtinImmutable(cli: name) }
-        return CliConfig(name: name, executable: executable,
-//: @use-case:end cli.generic.builtin_wire_is_sealed_from_config#builtin_sealed
-                         kind: try cliDialect(table, name, executable: executable),
-                         descriptor: nil, origin: origin)
-    }
-
-    /// A built-in `[cli.*]` table's `kind` as a `CliDialect`. Omitted, it derives from
-    /// the executable, so a grok binary is grok without saying so twice. Given, an
-    /// unrecognized value is a config error the user can act on, not a silent fallback
-    /// that would dispatch one agent as though it spoke another's protocol.
-    private static func cliDialect(_ table: [String: Any], _ owner: String,
-                                   executable: URL) throws -> CliDialect {
-        guard let raw = table["kind"] as? String else { return CliDialect(executable: executable) }
-        switch raw {
-        case "claude": return .claude
-        case "grok": return .grok
-        case "codex": return .codex
-        default:
+        // `kind` used to select a built-in wire. Silently ignoring a leftover one would
+        // hand the user an interactive agent launched with no arguments, which hangs
+        // until the deadline and reports a timeout; naming it is the actionable answer.
+        if table["kind"] != nil {
             throw ConfigError.malformed(
-                "cli '\(owner)' has unknown kind '\(raw)' (use 'claude', 'grok', 'codex' or 'generic')")
+                "cli '\(name)': 'kind' no longer exists — describe the wire itself (args, output, verdict)")
         }
+        if table["deadline_diagnostic"] != nil {
+            throw ConfigError.malformed(
+                "cli '\(name)': 'deadline_diagnostic' no longer exists — a deadline is a deadline, whichever CLI hit it")
+        }
+        let executable = expand(try string(table, "executable", name))
+        let descriptor = try parseDescriptor(name: name, table: table, executable: executable)
+        return CliConfig(name: name, executable: executable,
+                         descriptor: descriptor, origin: origin)
     }
 
     private static let protectedEnvPrefixes = ["COWORK_", "DYLD_", "LD_"]
@@ -298,6 +252,11 @@ public struct Config: Sendable {
             throw ConfigError.malformed("cli '\(name)' has unknown task_delivery '\(tdRaw)'")
         }
         let args = stringArray(table["args"])
+        // With no built-in wire to fall back to, an empty argv is not a minimal row —
+        // it launches an interactive agent on a pipe that will never answer.
+        guard !args.isEmpty else {
+            throw ConfigError.malformed("cli '\(name)' needs a non-empty args")
+        }
         let workspaceArgs = stringArray(table["workspace_args"])
         let resumeArgs = stringArray(table["resume_args"])
 
@@ -322,14 +281,15 @@ public struct Config: Sendable {
 
         let env = try parseEnv(name: name, table["env"] as? [String: Any] ?? [:])
         let prependPath = (table["prepend_exe_dir_to_path"] as? Bool) ?? false
-        let isolate = try parseIsolate(table["isolate"] as? [String: Any])
+        let isolate = try parseIsolate(name: name, table["isolate"] as? [String: Any])
         let continuationField = table["continuation_field"] as? String
         let stopReasonField = (table["stop_reason_field"] as? String) ?? "stopReason"
-        let deadlineDiagnostic = (table["deadline_diagnostic"] as? String) ?? "cli.\(name).deadline"
+        let session = try parseSession(name: name, table["session"] as? [String: Any])
         let timeout = (table["timeout_seconds"] as? Int) ?? 1800
         let cpu = (table["cpu_seconds"] as? Int) ?? 1800
 
         try validateCoherence(name: name, taskDelivery: taskDelivery, args: args,
+                              workspaceArgs: workspaceArgs, resumeArgs: resumeArgs,
                               output: output, verdict: verdict)
 
         return CliDescriptor(
@@ -337,8 +297,62 @@ public struct Config: Sendable {
             workspaceArguments: workspaceArgs, resumeArguments: resumeArgs,
             env: env, prependExeDirToPath: prependPath, output: output,
             continuationField: continuationField, verdict: verdict,
-            stopReasonField: stopReasonField, isolate: isolate,
-            deadlineDiagnostic: deadlineDiagnostic, timeoutSeconds: timeout, cpuSeconds: cpu)
+            stopReasonField: stopReasonField, isolate: isolate, session: session,
+            timeoutSeconds: timeout, cpuSeconds: cpu)
+    }
+
+    /// The `[cli.*.session]` block. Every key that does not apply to the selected wire
+    /// is a load error rather than an ignored value: a user who writes `tool` on an ACP
+    /// row believes they configured something, and a silently-dropped key is the
+    /// quietest possible way to be wrong.
+    private static func parseSession(name: String,
+                                     _ dict: [String: Any]?) throws -> CliDescriptor.SessionSpec? {
+        guard let dict else { return nil }
+        guard let raw = dict["protocol"] as? String else {
+            throw ConfigError.malformed("cli '\(name)' session needs a protocol")
+        }
+        guard let wire = CliDescriptor.SessionSpec.Wire(rawValue: raw) else {
+            throw ConfigError.malformed(
+                "cli '\(name)' has unknown session protocol '\(raw)' (use 'stream_json', 'acp' or 'mcp')")
+        }
+        let arguments = stringArray(dict["args"])
+        guard !arguments.isEmpty else {
+            throw ConfigError.malformed("cli '\(name)' session needs a non-empty args")
+        }
+        let resumeArguments = stringArray(dict["resume_args"])
+        let tool = dict["tool"] as? String
+        let replyTool = dict["reply_tool"] as? String
+        var toolArguments: [String: String] = [:]
+        for (k, v) in (dict["tool_args"] as? [String: Any] ?? [:]) {
+            guard let s = v as? String else {
+                throw ConfigError.malformed("cli '\(name)' session tool_args '\(k)' must be a string")
+            }
+            toolArguments[k] = s
+        }
+
+        switch wire {
+        case .mcp:
+            guard let tool, let replyTool, !tool.isEmpty, !replyTool.isEmpty else {
+                throw ConfigError.malformed(
+                    "cli '\(name)' session protocol='mcp' needs tool and reply_tool")
+            }
+            guard resumeArguments.isEmpty else {
+                throw ConfigError.malformed(
+                    "cli '\(name)' session protocol='mcp' has no resume_args: the thread is the continuation")
+            }
+            return .init(wire: wire, arguments: arguments, tool: tool, replyTool: replyTool,
+                         toolArguments: toolArguments)
+        case .acp, .streamJSON:
+            guard tool == nil, replyTool == nil, toolArguments.isEmpty else {
+                throw ConfigError.malformed(
+                    "cli '\(name)' session protocol='\(raw)' takes no tool/reply_tool/tool_args (those are mcp's)")
+            }
+            guard wire == .streamJSON || resumeArguments.isEmpty else {
+                throw ConfigError.malformed(
+                    "cli '\(name)' session protocol='acp' has no resume_args: session/new mints the id")
+            }
+            return .init(wire: wire, arguments: arguments, resumeArguments: resumeArguments)
+        }
     }
 
     /// Reject the statically-detectable half of the ADR-000 "select a strategy that
@@ -347,10 +361,19 @@ public struct Config: Sendable {
 //: @use-case:cli.generic.incoherent_descriptor_is_refused_at_load#verdict_output_coherence
     private static func validateCoherence(name: String,
                                           taskDelivery: CliDescriptor.TaskDelivery,
-                                          args: [String], output: CliDescriptor.OutputMode,
+                                          args: [String], workspaceArgs: [String],
+                                          resumeArgs: [String],
+                                          output: CliDescriptor.OutputMode,
                                           verdict: CliDescriptor.VerdictStrategy) throws {
         if args.contains("{task}") && taskDelivery != .argv {
             throw ConfigError.malformed("cli '\(name)': {task} in args requires task_delivery='argv'")
+        }
+        if taskDelivery == .argv, !(args + workspaceArgs + resumeArgs).contains("{task}") {
+            // Otherwise the worker is launched with the task nowhere in its invocation,
+            // does nothing, exits 0, and an exit-code verdict calls that a success —
+            // work reported as done that was never even asked for.
+            throw ConfigError.malformed(
+                "cli '\(name)': task_delivery='argv' needs a literal {task} argument, or the task is never delivered")
         }
         switch verdict {
         case .declaredResult where output != .streamJSONResult:
@@ -388,10 +411,18 @@ public struct Config: Sendable {
 //: @use-case:end cli.generic.execution_sensitive_env_keys_are_refused#protected_env
     }
 
-    private static func parseIsolate(_ dict: [String: Any]?) throws -> CliDescriptor.Isolation? {
+    private static func parseIsolate(name: String,
+                                     _ dict: [String: Any]?) throws -> CliDescriptor.Isolation? {
         guard let dict else { return nil }
         guard let variable = dict["var"] as? String else {
-            throw ConfigError.malformed("cli isolate needs a 'var'")
+            throw ConfigError.malformed("cli '\(name)' isolate needs a 'var'")
+        }
+        // The same denylist `[cli.*.env]` enforces. `isolate` sets an environment
+        // variable by another door, and the runner applies it LAST, so without this
+        // check `var = "HOME"` would win a key `env` is not allowed to touch at all.
+        if protectedEnvExact.contains(variable)
+            || protectedEnvPrefixes.contains(where: { variable.hasPrefix($0) }) {
+            throw ConfigError.protectedEnvKey(cli: name, key: variable)
         }
         let seed = (dict["seed"] as? String).map { expand($0) }
         return CliDescriptor.Isolation(variable: variable, seed: seed)

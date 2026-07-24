@@ -1,45 +1,33 @@
 import Foundation
 
-/// One installed agent — built-in or config-wired — as a single value type.
+/// One installed agent as a single value type: a name to dispatch by, an executable,
+/// and the descriptor that says everything about how to speak to it.
 ///
-/// This replaces the three hand-written `CliAgent` structs and the `SessionCapable`
-/// / `FollowUpCapable` marker protocols. Those markers were *static* conformances,
-/// so they could only ever describe a dialect known at compile time; a config-wired
-/// CLI needs the same facts derived from the descriptor it was actually given.
+/// There is no longer a second, code-resident kind of agent. That collapse is the
+/// point of the generalisation: cowork cannot recognise an agent by name, so it can
+/// never mis-recognise one either, and two CLIs wired the same way are the same
+/// thing to every part of the system.
 ///
 /// Capabilities stay derived from mechanism, never declared:
-/// - `isSessionCapable` is the presence of a code-backed session adapter, which only
-///   a built-in can have — a generic row cannot select one, so it cannot forge it.
+/// - `isSessionCapable` is the presence of a session wire to speak.
 /// - `isFollowUpCapable` is the presence of BOTH halves of the mechanism (a handle to
-///   capture and an argument to pass it back), exactly the old protocol's condition.
+///   capture and an argument to pass it back).
 public struct ConfiguredAgent: Sendable {
-    /// The live-session transports, bound to their built-in dialect. A generic
-    /// descriptor cannot name one: the field does not exist in config. This closes
-    /// both the false-capability hole and the credential-leak hole (the codex adapter
-    /// copies the user's auth into the worker's isolated home — it must never be
-    /// handed to an arbitrary binary).
-    public enum SessionAdapter: Sendable {
-        case claudeStreamJSON
-        case grokACP
-        case codexMCP
-    }
-
     public let name: String
     public let executable: URL
     public let descriptor: CliDescriptor
-    public let sessionAdapter: SessionAdapter?
-    /// True when this agent's wire came from a config descriptor rather than a sealed
-    /// built-in. Drives the provenance diagnostics: a configured capability is
-    /// asserted, a built-in's was verified against the real CLI.
-    public let isConfigured: Bool
 
-    public init(name: String, executable: URL, descriptor: CliDescriptor,
-                sessionAdapter: SessionAdapter?, isConfigured: Bool) {
+    public init(name: String, executable: URL, descriptor: CliDescriptor) {
         self.name = name
         self.executable = executable
         self.descriptor = descriptor
-        self.sessionAdapter = sessionAdapter
-        self.isConfigured = isConfigured
+    }
+
+    /// Total: a configured row IS a descriptor, so there is no row that fails to
+    /// become an agent. What used to be a probe-time `cli.driver-unknown` is now a
+    /// load-time refusal, which is strictly earlier and strictly louder.
+    public init(_ cli: CliConfig) {
+        self.init(name: cli.name, executable: cli.executable, descriptor: cli.descriptor)
     }
 
     public func oneShot() -> OneShotDriver {
@@ -47,8 +35,8 @@ public struct ConfiguredAgent: Sendable {
     }
 
 //: @use-case:cli.generic.live_session_is_refused_never_degraded#session_code_only
-    /// Whether a live session can be opened: a code-backed adapter exists.
-    public var isSessionCapable: Bool { sessionAdapter != nil }
+    /// Whether a live session can be opened: a session wire exists to speak.
+    public var isSessionCapable: Bool { descriptor.session != nil }
 //: @use-case:end cli.generic.live_session_is_refused_never_degraded#session_code_only
 
     /// Whether a finished dispatch's context can be carried into a new one: the
@@ -63,71 +51,85 @@ public struct ConfiguredAgent: Sendable {
     }
 
     /// Why this agent cannot carry context forward. Empty when it can.
-    /// Codex's built-in wording is preserved exactly: its one-shot leaves no handle
-    /// and its invocation ignores resume, so claiming follow-up would be a lie.
     public var followUpBlocker: [String] {
-        if isFollowUpCapable { return [] }
-        return isConfigured ? ["cli.\(name).follow-up-not-wired"] : ["cli.follow-up-unproven"]
+        isFollowUpCapable ? [] : ["cli.follow-up-not-wired"]
     }
 
 //: @use-case:cli.generic.capability_is_asserted_not_proven#provenance
-    /// Provenance diagnostics: what is *asserted* by config versus *proven* against
-    /// the real CLI (ADR 000 — a capability difference is reported, never papered over).
+    /// What is *asserted* by config versus *proven* against the real CLI (ADR 000 — a
+    /// capability difference is reported, never papered over).
+    ///
+    /// Every row is config-authored now, so there is no privileged provenance left to
+    /// compare against and these markers are unconditional. That is the honest
+    /// reading: each one names a claim cowork made on the user's word and has not yet
+    /// watched come true. A performed journey is what clears them.
     public var provenanceDiagnostics: [String] {
-        guard isConfigured else { return [] }
         var out: [String] = []
         if isFollowUpCapable {
             // The mechanism is wired, so cowork will capture and pass a handle — but
             // nothing has yet proven the worker HONORS it rather than starting fresh.
-            out.append("cli.\(name).follow-up-configured-unverified")
+            out.append("cli.follow-up-unverified")
+        }
+        if isSessionCapable {
+            // A `[session]` block asserts this binary speaks one of three stateful
+            // wires. Cowork can spawn it and try, but nothing has proven it answers.
+            out.append("cli.session-unverified")
         }
         if descriptor.verdict == .exitCode {
             // Honest only if this CLI's failures really do surface as a nonzero exit.
             // Statically unknowable; a performed journey clears it.
-            out.append("cli.\(name).verdict-unverified")
+            out.append("cli.verdict-unverified")
         }
         return out
     }
 
 //: @use-case:end cli.generic.capability_is_asserted_not_proven#provenance
-    /// Open a live session. Only a built-in adapter can serve one; a configured agent
-    /// is refused rather than silently degraded to a one-shot (ADR 006).
+    /// Open a live session on the wire the descriptor selected. A row with no
+    /// `[session]` block is refused rather than silently degraded to a one-shot
+    /// (ADR 006).
     public func makeSession(_ ctx: DispatchContext) throws -> SessionTransport {
-        switch sessionAdapter {
-        case .claudeStreamJSON:
-            return try CliSession(
-                executable: executable,
-                arguments: BuiltinDescriptors.claude.baseArguments
-                    + (ctx.resume.map { ["--resume", $0] } ?? []),
-                environment: Self.baseEnvironment,
-                workingDirectory: ctx.workspace)
-        case .grokACP:
-            // GROK_CLAUDE_MCPS_ENABLED=false isolates the worker: grok otherwise imports
-            // the host's MCP servers (cowork among them) from ~/.claude.json.
-            let pipe = try ContainedPipe(
-                executable: executable,
-                arguments: ["agent", "--always-approve", "stdio"],
-                environment: Self.baseEnvironment.merging(["GROK_CLAUDE_MCPS_ENABLED": "false"]) { _, b in b },
-                workingDirectory: ctx.workspace)
-            return try GrokAcpSession(pipe: pipe, cwd: ctx.sessionCwd)
-        case .codexMCP:
-            // A pristine CODEX_HOME holding only a copy of the user's auth: codex
-            // otherwise loads the host's MCP servers and hooks, which derail the turn.
-            let home = try Self.isolatedCodexHome()
-            do {
-                let pipe = try ContainedPipe(
-                    executable: executable,
-                    arguments: ["mcp-server"],
-                    environment: Self.baseEnvironment.merging(["CODEX_HOME": home.path]) { _, b in b },
-                    workingDirectory: ctx.workspace)
-                let session = try CodexMcpSession(pipe: pipe, cwd: ctx.sessionCwd)
-                return IsolatedCodexSession(inner: session, home: home)
-            } catch {
-                try? FileManager.default.removeItem(at: home)
-                throw error
+        guard let spec = descriptor.session else { throw CliSessionError.notSessionCapable }
+
+        // The isolation dir may hold a copy of a credential the user pointed at, so it
+        // is created before the spawn and removed on EVERY way out of this function —
+        // including a handshake that throws, which is the path that leaks it.
+        let isolation = descriptor.isolate.flatMap {
+            IsolationHandle.make(variable: $0.variable, seed: $0.seed)
+        }
+        do {
+            var environment = Self.baseEnvironment
+            for entry in descriptor.env {
+                switch entry.value {
+                case let .literal(v): environment[entry.key] = v
+                case let .reference(n): environment[entry.key] = ProcessInfo.processInfo.environment[n] ?? ""
+                }
             }
-        case nil:
-            throw CliSession.SessionError.spawnFailed(-1)
+            if let isolation {
+                let parts = isolation.environmentEntry.split(separator: "=", maxSplits: 1)
+                if parts.count == 2 { environment[String(parts[0])] = String(parts[1]) }
+            }
+
+            var arguments = spec.arguments
+            if let resume = ctx.resume, !spec.resumeArguments.isEmpty {
+                // Spliced at spawn, not per turn: a session's continuation is the live
+                // process, so resuming is something only the launch can express.
+                arguments += spec.resumeArguments.map { $0 == "{resume}" ? resume : $0 }
+            }
+
+            let pipe = try ContainedPipe(executable: executable, arguments: arguments,
+                                         environment: environment,
+                                         workingDirectory: ctx.workspace)
+            let inner: SessionTransport
+            switch spec.wire {
+            case .streamJSON: inner = try StreamJsonSession(pipe: pipe)
+            case .acp: inner = try AcpSession(pipe: pipe, cwd: ctx.sessionCwd)
+            case .mcp: inner = try McpSession(pipe: pipe, cwd: ctx.sessionCwd, spec: spec)
+            }
+            guard let isolation else { return inner }
+            return IsolatedSession(inner: inner, isolation: isolation)
+        } catch {
+            isolation?.remove()
+            throw error
         }
     }
 
@@ -137,40 +139,24 @@ public struct ConfiguredAgent: Sendable {
          "USER": NSUserName(),
          "LANG": "en_US.UTF-8"]
     }
-
-    /// A throwaway CODEX_HOME with only a 0600 copy of the user's auth, in a 0700 dir.
-    private static func isolatedCodexHome() throws -> URL {
-        let fm = FileManager.default
-        let home = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("cowork-codex-home-\(UUID().uuidString)")
-        try fm.createDirectory(at: home, withIntermediateDirectories: true,
-                               attributes: [.posixPermissions: 0o700])
-        let auth = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex/auth.json")
-        if fm.fileExists(atPath: auth.path) {
-            let dest = home.appendingPathComponent("auth.json")
-            try fm.copyItem(at: auth, to: dest)
-            try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: dest.path)
-        }
-        return home
-    }
 }
 
-/// Wraps a codex session with the isolated CODEX_HOME it runs in, removing that home
-/// — which holds a copy of the user's auth — when the session closes.
-final class IsolatedCodexSession: SessionTransport, @unchecked Sendable {
-    private let inner: CodexMcpSession
-    private let home: URL
+/// Wraps a session with the isolation directory it runs in — which may hold a copy of
+/// a credential — and removes that directory when the session closes.
+final class IsolatedSession: SessionTransport, @unchecked Sendable {
+    private let inner: SessionTransport
+    private let isolation: IsolationHandle
 
-    init(inner: CodexMcpSession, home: URL) {
+    init(inner: SessionTransport, isolation: IsolationHandle) {
         self.inner = inner
-        self.home = home
+        self.isolation = isolation
     }
 
-    func turn(_ prompt: String) async -> InteractiveSession.Turn { inner.turn(prompt) }
+    func turn(_ prompt: String) async -> InteractiveSession.Turn { await inner.turn(prompt) }
     var isAlive: Bool { inner.isAlive }
     var continuation: String? { inner.continuation }
     func close() {
         inner.close()
-        try? FileManager.default.removeItem(at: home)
+        isolation.remove()
     }
 }

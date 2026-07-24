@@ -7,11 +7,11 @@ import Testing
 ///
 /// Stand-in agent rather than real grok, deliberately — the mechanism is under
 /// test, and a real model's latency would hide a hang behind a plausible wait.
-@Suite("GrokAcpSession", .serialized)
-struct GrokAcpSessionTests {
+@Suite("AcpSession", .serialized)
+struct AcpSessionTests {
     /// Smallest ACP stand-in that honours initialize / session/new / session/prompt.
     ///
-    /// Written in Python with explicit flushes (same lesson as CliSessionTests): a
+    /// Written in Python with explicit flushes (same lesson as StreamJsonSessionTests): a
     /// bash stand-in's printf to a pipe is block-buffered and every test hangs.
     private func makeAgent(_ dir: URL, body: String) throws -> URL {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -117,12 +117,12 @@ struct GrokAcpSessionTests {
             continue
     """
 
-    private func openSession(dir: URL, turnTimeout: TimeInterval = 5) throws -> GrokAcpSession {
+    private func openSession(dir: URL, turnTimeout: TimeInterval = 5) throws -> AcpSession {
         let agent = try makeAgent(dir, body: rememberingAgent)
         let pipe = try ContainedPipe(executable: agent, arguments: [],
                                      environment: ["PATH": "/usr/bin:/bin"],
                                      cpuSecondsLimit: 60)
-        return try GrokAcpSession(pipe: pipe, cwd: dir.path, turnTimeout: turnTimeout)
+        return try AcpSession(pipe: pipe, cwd: dir.path, turnTimeout: turnTimeout)
     }
 
     @Test("a turn returns assistant text and succeeds on end_turn")

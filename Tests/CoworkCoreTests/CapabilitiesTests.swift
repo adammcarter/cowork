@@ -64,18 +64,22 @@ struct CapabilitiesTests {
         return Config(providers: [name: p], cli: [:], visible: [name: p])
     }
 
+    /// Rows wired for the shape each test needs. The default is the shipped
+    /// stream-json example — the shape with every capability wired — because most of
+    /// these tests are about capability REPORTING, not about any one wire.
     private func cliConfig(_ executables: [String: URL],
+                           descriptor: CliDescriptor? = nil,
                            origin: ProviderConfig.Origin = .global) -> Config {
+        let d = descriptor ?? (try? ExampleConfig.descriptor("claude"))!
         var cli: [String: CliConfig] = [:]
         for (name, url) in executables {
-            // kind matches the executable, the normal case — the parser derives it
-            // this way when the user omits `kind`. Deliberate mismatches are set
-            // explicitly by the tests that exercise them.
-            cli[name] = CliConfig(name: name, executable: url,
-                                  kind: CliDialect(executable: url), origin: origin)
+            cli[name] = CliConfig(name: name, executable: url, descriptor: d, origin: origin)
         }
         return Config(providers: [:], cli: cli, visible: [:])
     }
+
+    /// A row that declares no session wire and no continuation handle.
+    private var oneShotOnly: CliDescriptor { (try? ExampleConfig.descriptor("opencode"))! }
 
     /// A real, executable file: `available` for a CLI is a live fact about the
     /// filesystem, so the test must give it a filesystem to be right about.
@@ -300,40 +304,45 @@ struct CapabilitiesTests {
 
     /// ADR 001's confirmation, in one test: `supports_message` is true for a backend
     /// that can honestly do it and false for one that cannot, in the same report.
-    @Test("supports_message differs between CLI drivers, and the report says so")
+    @Test("supports_message differs between CLI rows, and the report says so")
     func supportsMessageIsNotFlattened() async throws {
-        // Every recognised dialect (claude, grok, codex) is now SessionCapable, so the
-        // remaining honest "false" is a driver cowork does not recognise: it may well
-        // accept messages, but cowork has no agent that can send one, and the capability
+        // The honest "false" is a row that declares no session wire. Its binary may
+        // well accept messages; cowork has no wire to send one on, and the capability
         // reported is cowork's.
-        let claude = try installedExecutable(named: "claude")
-        let mystery = try installedExecutable(named: "mystery-agent")
+        let wired = try installedExecutable(named: "wired-agent")
+        let plain = try installedExecutable(named: "plain-agent")
+        let config = Config(providers: [:], cli: [
+            "wired": CliConfig(name: "wired", executable: wired,
+                               descriptor: try ExampleConfig.descriptor("claude"), origin: .global),
+            "plain": CliConfig(name: "plain", executable: plain,
+                               descriptor: oneShotOnly, origin: .global),
+        ], visible: [:])
         let facts = try await Capabilities.facts(
-            backend: nil, config: cliConfig(["claude": claude, "mystery": mystery]),
+            backend: nil, config: config,
             probe: ScriptedProbe.serving(models: []), secrets: { _ in nil })
 
         let byID = Dictionary(uniqueKeysWithValues: facts.map { ($0.id, $0) })
-        #expect(byID["claude"]?.supportsMessage == true)
-        #expect(byID["mystery"]?.supportsMessage == false)
-        #expect(byID["mystery"]?.diagnostics.contains("cli.driver-unknown") == true)
-        #expect(byID["claude"]?.available == true)
-        #expect(byID["mystery"]?.kind == .cli)
+        #expect(byID["wired"]?.supportsMessage == true)
+        #expect(byID["plain"]?.supportsMessage == false)
+        #expect(byID["plain"]?.diagnostics.contains("cli.session-code-only") == true)
+        #expect(byID["wired"]?.available == true)
+        #expect(byID["plain"]?.kind == .cli)
     }
 
-    /// Grok is a recognised driver, and its interactive ACP transport is now built —
-    /// so it reports supports_message true, backed by `GrokAgent: SessionCapable`,
-    /// the same conformance dispatch reads. Never "driver-unknown".
-    @Test("a grok backend is a known driver: one-shot AND interactive, never driver-unknown")
-    func grokIsAKnownDriver() async throws {
-        let grok = try installedExecutable(named: "grok")
+    /// A row declaring an ACP session reports supports_message true, backed by the
+    /// same descriptor field the interactive factory reads. The two cannot drift.
+    @Test("an ACP row is one-shot AND interactive")
+    func acpRowIsInteractive() async throws {
+        let exe = try installedExecutable(named: "acp-agent")
         let facts = try await Capabilities.facts(
-            backend: nil, config: cliConfig(["grok": grok]),
+            backend: nil,
+            config: cliConfig(["acp": exe], descriptor: try ExampleConfig.descriptor("grok")),
             probe: ScriptedProbe.serving(models: []), secrets: { _ in nil })
 
-        let g = facts.first { $0.id == "grok" }
+        let g = facts.first { $0.id == "acp" }
         #expect(g?.available == true)
-        #expect(g?.supportsMessage == true, "grok's ACP session is built — supports_message is backed by SessionCapable")
-        #expect(g?.diagnostics.contains("cli.driver-unknown") == false, "grok is recognised, not unknown")
+        #expect(g?.supportsMessage == true, "the row declares an ACP session wire")
+        #expect(g?.diagnostics.contains("cli.session-code-only") == false)
     }
 
     /// An endpoint can be messaged (cowork owns the message list) but cannot be
@@ -350,32 +359,32 @@ struct CapabilitiesTests {
         #expect(facts[0].diagnostics.contains("endpoint.no-continuation"))
     }
 
-    /// Claude's one-shot captures `session_id` and accepts `--resume`, so it is
-    /// `FollowUpCapable` and capabilities reports true — the same conformance
-    /// that pins the mechanism, never a hand-maintained Bool.
-    @Test("claude reports supports_follow_up true, backed by FollowUpCapable")
-    func claudeFollowUpIsCapable() async throws {
-        let claude = try installedExecutable(named: "claude")
-        let facts = try await Capabilities.facts(backend: "claude", config: cliConfig(["claude": claude]),
+    /// A row that captures a handle AND passes it back has both halves of the
+    /// mechanism, so capabilities reports true — derived from the descriptor that
+    /// pins the mechanism, never a hand-maintained Bool.
+    @Test("a row wiring both halves reports supports_follow_up true")
+    func bothHalvesReportFollowUpTrue() async throws {
+        let exe = try installedExecutable(named: "wired-agent")
+        let facts = try await Capabilities.facts(backend: "wired", config: cliConfig(["wired": exe]),
                                                  probe: ScriptedProbe.serving(models: []),
                                                  secrets: { _ in nil })
 
         #expect(facts[0].supportsFollowUp == true)
-        #expect(facts[0].diagnostics.contains("cli.follow-up-unproven") == false)
+        #expect(facts[0].diagnostics.contains("cli.follow-up-not-wired") == false)
     }
 
-    /// Codex exec leaves no continuation handle, so it is not `FollowUpCapable`
+    /// A row whose one-shot leaves no continuation handle is not follow-up capable,
     /// and the report says false with a named reason — never a blanket lie about
     /// every CLI.
     @Test("a CLI whose one-shot has no continuation reports follow-up false, with the reason")
     func cliWithoutContinuationReportsFollowUpFalse() async throws {
-        let codex = try installedExecutable(named: "codex")
-        let facts = try await Capabilities.facts(backend: "codex", config: cliConfig(["codex": codex]),
-                                                 probe: ScriptedProbe.serving(models: []),
-                                                 secrets: { _ in nil })
+        let exe = try installedExecutable(named: "plain-agent")
+        let facts = try await Capabilities.facts(
+            backend: "plain", config: cliConfig(["plain": exe], descriptor: oneShotOnly),
+            probe: ScriptedProbe.serving(models: []), secrets: { _ in nil })
 
         #expect(facts[0].supportsFollowUp == false)
-        #expect(facts[0].diagnostics.contains("cli.follow-up-unproven"))
+        #expect(facts[0].diagnostics.contains("cli.follow-up-not-wired"))
     }
 
     /// `supports_follow_up` is literally `agent is FollowUpCapable`, the same
@@ -384,55 +393,49 @@ struct CapabilitiesTests {
     func followUpIsTheConformance() async throws {
         let claude = try installedExecutable(named: "claude")
         let codex = try installedExecutable(named: "codex")
+        let config = Config(providers: [:], cli: [
+            "claude": CliConfig(name: "claude", executable: claude,
+                                descriptor: try ExampleConfig.descriptor("claude"), origin: .global),
+            "codex": CliConfig(name: "codex", executable: codex,
+                               descriptor: try ExampleConfig.descriptor("codex"), origin: .global),
+        ], visible: [:])
         let facts = try await Capabilities.facts(
-            backend: nil, config: cliConfig(["claude": claude, "codex": codex]),
+            backend: nil, config: config,
             probe: ScriptedProbe.serving(models: []), secrets: { _ in nil })
         let byID = Dictionary(uniqueKeysWithValues: facts.map { ($0.id, $0) })
 
-        let claudeAgent = CliRegistry.agent(for: CliConfig(
-            name: "claude", executable: claude, kind: .claude, origin: .global))
-        let codexAgent = CliRegistry.agent(for: CliConfig(
-            name: "codex", executable: codex, kind: .codex, origin: .global))
+        let claudeAgent = ConfiguredAgent(CliConfig(
+            name: "claude", executable: claude,
+            descriptor: try ExampleConfig.descriptor("claude"), origin: .global))
+        let codexAgent = ConfiguredAgent(CliConfig(
+            name: "codex", executable: codex,
+            descriptor: try ExampleConfig.descriptor("codex"), origin: .global))
 
-        #expect(byID["claude"]?.supportsFollowUp == claudeAgent?.isFollowUpCapable)
-        #expect(byID["codex"]?.supportsFollowUp == codexAgent?.isFollowUpCapable)
-        #expect(claudeAgent?.isFollowUpCapable == true)
-        #expect(codexAgent?.isFollowUpCapable == false)
+        #expect(byID["claude"]?.supportsFollowUp == claudeAgent.isFollowUpCapable)
+        #expect(byID["codex"]?.supportsFollowUp == codexAgent.isFollowUpCapable)
+        #expect(claudeAgent.isFollowUpCapable == true)
+        #expect(codexAgent.isFollowUpCapable == false)
     }
 
-    /// A CLI cowork has no driver for cannot be messaged by cowork, whatever the
-    /// binary itself can do. Reporting true here would be a guess.
-    @Test("an unrecognised CLI cannot honestly be claimed as messageable")
-    func unknownDriverClaimsNothing() async throws {
-        let weird = try installedExecutable(named: "some-other-agent")
-        let facts = try await Capabilities.facts(backend: "weird", config: cliConfig(["weird": weird]),
-                                                 probe: ScriptedProbe.serving(models: []),
-                                                 secrets: { _ in nil })
-
-        #expect(facts[0].supportsMessage == false)
-        #expect(facts[0].diagnostics.contains("cli.driver-unknown"))
-        #expect(facts[0].diagnostics.contains("executable=some-other-agent"))
-    }
-
-    /// A non-canonically-named binary — a wrapper, a shim, a `claude-3.5` — that the
-    /// executable heuristic cannot recognise is still dispatchable by the `kind` the
-    /// user gave it, and reports that dialect's real capabilities. The explicit kind
-    /// is a legitimate fallback, not a mismatch to warn about; refusing a working
-    /// binary over a name is the regression this guards against.
-    @Test("an explicit kind makes a non-canonically-named binary a known, capable agent")
-    func explicitKindRoutesAWrapper() async throws {
-        let wrapper = try installedExecutable(named: "claude-wrapper")
+    /// A wrapper, a shim, a version-suffixed binary — cowork never had to recognise
+    /// the executable's NAME, and now it cannot: the row's own declaration is the
+    /// whole truth, so an oddly-named binary is a first-class backend with the full
+    /// capabilities its wire gives it. Refusing a working binary over its name was the
+    /// regression this guards against; it is now structurally impossible.
+    @Test("a binary named nothing in particular is still a fully capable backend")
+    func anOddlyNamedBinaryIsFullyCapable() async throws {
+        let wrapper = try installedExecutable(named: "agent-3.5-wrapper")
         let config = Config(providers: [:], cli: [
-            "wrapped": CliConfig(name: "wrapped", executable: wrapper, kind: .claude, origin: .global),
+            "wrapped": CliConfig(name: "wrapped", executable: wrapper,
+                                 descriptor: try ExampleConfig.descriptor("claude"), origin: .global),
         ], visible: [:])
         let facts = try await Capabilities.facts(backend: "wrapped", config: config,
                                                  probe: ScriptedProbe.serving(models: []),
                                                  secrets: { _ in nil })
 
-        #expect(facts[0].supportsMessage == true, "a claude wrapper is claude, and claude can be messaged")
-        #expect(facts[0].diagnostics.contains("cli.driver-unknown") == false)
-        #expect(facts[0].diagnostics.contains("cli.kind-mismatch") == false,
-                "the executable is unrecognised, so the kind is a fallback, not a disagreement")
+        #expect(facts[0].supportsMessage == true, "the row declares a session wire; the name is irrelevant")
+        #expect(facts[0].supportsFollowUp == true)
+        #expect(facts[0].diagnostics.contains("cli.session-code-only") == false)
     }
 
     @Test("a configured CLI that is not installed is not available")
@@ -491,7 +494,9 @@ struct CapabilitiesTests {
         let p = ProviderConfig(name: "omlx", kind: "openai_compatible",
                                baseURL: URL(string: "http://192.168.64.1:8062")!,
                                chatPath: "v1/chat/completions", credential: nil, origin: .global)
-        let config = Config(providers: ["omlx": p], cli: ["claude": CliConfig(name: "claude", executable: claude, kind: .claude, origin: .global)],
+        let config = Config(providers: ["omlx": p], cli: ["claude": CliConfig(name: "claude", executable: claude,
+                                                      descriptor: try ExampleConfig.descriptor("claude"),
+                                                      origin: .global)],
                             visible: ["omlx": p])
 
         let facts = try await Capabilities.facts(backend: nil, config: config,

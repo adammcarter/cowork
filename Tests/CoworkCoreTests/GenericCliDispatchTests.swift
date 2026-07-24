@@ -52,8 +52,7 @@ struct GenericCliDispatchTests {
                   .init(key: "OPENCODE_PERMISSION", value: .literal("allow"))],
             output: .raw,
             verdict: .exitCode,
-            isolate: isolate,
-            deadlineDiagnostic: "cli.opencode.deadline")
+            isolate: isolate)
     }
 
     // Test 16 — the flagship row works end to end from config
@@ -133,8 +132,7 @@ struct GenericCliDispatchTests {
             name: "x", executable: URL(fileURLWithPath: "/x/bin/x"),
             descriptor: CliDescriptor(taskDelivery: .argv, baseArguments: ["run", "{task}"],
                                       workspaceArguments: ["--cwd", "{workspace}"],
-                                      output: .raw, verdict: .exitCode,
-                                      deadlineDiagnostic: "cli.x.deadline"))
+                                      output: .raw, verdict: .exitCode))
         // The task is itself a placeholder string, and contains shell metacharacters.
         let hostile = "{workspace} ; rm -rf / && echo $(whoami)"
         let inv = driver.invocation(task: hostile, workspace: nil, resume: nil)
@@ -149,8 +147,7 @@ struct GenericCliDispatchTests {
             name: "x", executable: URL(fileURLWithPath: "/x/bin/x"),
             descriptor: CliDescriptor(taskDelivery: .argv,
                                       baseArguments: ["--label=pre{task}post", "{task}"],
-                                      output: .raw, verdict: .exitCode,
-                                      deadlineDiagnostic: "cli.x.deadline"))
+                                      output: .raw, verdict: .exitCode))
         let inv = driver.invocation(task: "T", workspace: nil, resume: nil)
         #expect(inv.arguments == ["--label=pre{task}post", "T"],
                 "only an argument that IS the token is substituted")
@@ -163,8 +160,7 @@ struct GenericCliDispatchTests {
             descriptor: CliDescriptor(taskDelivery: .argv, baseArguments: ["run", "{task}"],
                                       workspaceArguments: ["--cwd", "{workspace}"],
                                       resumeArguments: ["--session", "{resume}"],
-                                      output: .raw, verdict: .exitCode,
-                                      deadlineDiagnostic: "cli.x.deadline"))
+                                      output: .raw, verdict: .exitCode))
         let inv = driver.invocation(task: "T", workspace: nil, resume: nil)
         #expect(inv.arguments == ["run", "T"], "no dangling flags with empty values")
     }
@@ -173,14 +169,13 @@ struct GenericCliDispatchTests {
     @Test("a resolved generic backend is dispatchable but not messageable, and says why")
     func resolvedGenericBackendGate() {
         let cli = CliConfig(name: "opencode", executable: URL(fileURLWithPath: "/o/bin/opencode"),
-                            kind: .unknown("opencode"),
                             descriptor: opencodeDescriptor(), origin: .global)
         let backend = BackendResolver.resolveCli(cli)
         #expect(backend.oneShot(DispatchContext()) != nil, "it can be dispatched")
-        #expect(backend.supportsMessage == false, "no session operation exists for a config-wired CLI")
+        #expect(backend.supportsMessage == false, "this row declares no session wire")
         #expect(backend.supportsFollowUp == false, "this row wires no continuation handle")
         #expect(backend.diagnostics.contains("cli.session-code-only"))
-        #expect(backend.diagnostics.contains("cli.opencode.verdict-unverified"),
-                "an exit-code verdict on a config-wired CLI is asserted, not proven")
+        #expect(backend.diagnostics.contains("cli.verdict-unverified"),
+                "an exit-code verdict is asserted by config, never proven by it")
     }
 }

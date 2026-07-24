@@ -11,12 +11,12 @@ import Testing
 /// `initialize` + `notifications/initialized`, then `tools/call` of `codex` /
 /// `codex-reply`, with the reply in `result.structuredContent.content` and the thread
 /// in `result.structuredContent.threadId`.
-@Suite("CodexMcpSession", .serialized)
-struct CodexMcpSessionTests {
+@Suite("McpSession", .serialized)
+struct McpSessionTests {
     /// Smallest MCP stand-in honouring initialize / codex / codex-reply.
     ///
-    /// Written in Python with explicit flushes (same lesson as CliSessionTests /
-    /// GrokAcpSessionTests): a bash stand-in's printf to a pipe is block-buffered and
+    /// Written in Python with explicit flushes (same lesson as StreamJsonSessionTests /
+    /// AcpSessionTests): a bash stand-in's printf to a pipe is block-buffered and
     /// every test hangs.
     private func makeAgent(_ dir: URL, body: String) throws -> URL {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -40,9 +40,16 @@ struct CodexMcpSessionTests {
     first_prompt = None
     thread_id = "thr-test-1"
 
-    def result(mid, reply, with_content=True):
-        r = {"content": [{"type": "text", "text": reply}]}
-        if with_content:
+    def result(mid, reply, with_content=True, blocks_only=False):
+        r = {}
+        if blocks_only:
+            # The MCP spec's own shape: an array of typed content blocks, which is
+            # what an agent other than the one this wire was first proved against
+            # actually returns.
+            r["content"] = [{"type": "text", "text": reply}]
+            r["structuredContent"] = {"threadId": thread_id}
+        elif with_content:
+            r["content"] = [{"type": "text", "text": reply}]
             r["structuredContent"] = {"threadId": thread_id, "content": reply}
         print(json.dumps({"jsonrpc": "2.0", "id": mid, "result": r}), flush=True)
 
@@ -79,7 +86,9 @@ struct CodexMcpSessionTests {
             if name == "codex":
                 first_prompt = prompt
                 if prompt.startswith("FAIL_NOCONTENT"):
-                    result(mid, "partial", with_content=False)
+                    result(mid, "", with_content=False)
+                elif prompt.startswith("BLOCKS_ONLY"):
+                    result(mid, "echo: " + prompt, blocks_only=True)
                 else:
                     result(mid, "echo: " + prompt)
             elif name == "codex-reply":
@@ -92,12 +101,16 @@ struct CodexMcpSessionTests {
             continue
     """
 
-    private func openSession(dir: URL, turnTimeout: TimeInterval = 5) throws -> CodexMcpSession {
+    private func openSession(dir: URL, turnTimeout: TimeInterval = 5) throws -> McpSession {
         let agent = try makeAgent(dir, body: rememberingAgent)
         let pipe = try ContainedPipe(executable: agent, arguments: [],
                                      environment: ["PATH": "/usr/bin:/bin"],
                                      cpuSecondsLimit: 60)
-        return try CodexMcpSession(pipe: pipe, cwd: dir.path, turnTimeout: turnTimeout)
+        // The tool names are config values: the stub answers to exactly what the spec
+        // says, which is the same path a user's own MCP agent takes.
+        let spec = CliDescriptor.SessionSpec(wire: .mcp, arguments: [],
+                                             tool: "codex", replyTool: "codex-reply")
+        return try McpSession(pipe: pipe, cwd: dir.path, spec: spec, turnTimeout: turnTimeout)
     }
 
     @Test("a turn returns assistant text and succeeds")
@@ -148,7 +161,10 @@ struct CodexMcpSessionTests {
                 "the thread from the first result becomes the continuation handle")
     }
 
-    @Test("a result with no structuredContent is failed, never an optimistic success")
+    /// The presence of a result member is not an answer. A turn that came back with
+    /// no text at all is a failure, however well-formed the envelope was — an empty
+    /// success is the exact lie this product exists to prevent.
+    @Test("a result carrying no answer text is failed, never an optimistic success")
     func noContentIsFailure() throws {
         let dir = tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -159,6 +175,22 @@ struct CodexMcpSessionTests {
         #expect(turn.state == .failed)
         #expect(turn.diagnostics.contains("cli.mcp.no-result"))
         #expect(turn.workerAlive, "a turn that returned no answer is not a dead worker")
+    }
+
+    /// The MCP spec returns an ARRAY of typed content blocks. Reading only the
+    /// single-string shape this wire was first proved against would hand every other
+    /// MCP agent an empty answer while calling the turn a success.
+    @Test("the spec's content-block array is read as the answer, not just one agent's string")
+    func standardContentBlocksAreRead() throws {
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let session = try openSession(dir: dir)
+        defer { session.close() }
+
+        let turn = session.turn("BLOCKS_ONLY please")
+        #expect(turn.state == .succeeded)
+        #expect(turn.text == "echo: BLOCKS_ONLY please")
+        #expect(turn.diagnostics.isEmpty)
     }
 
     @Test("close leaves nothing running")

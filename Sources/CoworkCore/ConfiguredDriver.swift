@@ -23,8 +23,6 @@ public struct ConfiguredDriver: OneShotDriver {
         self.descriptor = descriptor
     }
 
-    public var deadlineDiagnostic: String { descriptor.deadlineDiagnostic }
-
     public func prepareIsolation() -> IsolationHandle? {
         guard let isolate = descriptor.isolate else { return nil }
         return IsolationHandle.make(variable: isolate.variable, seed: isolate.seed)
@@ -137,8 +135,8 @@ public struct ConfiguredDriver: OneShotDriver {
     }
 
     /// Stream-json: a stream of JSON events; assistant text builds the transcript,
-    /// the final `result` object carries the answer + declaration, `session_id` (last
-    /// non-empty) is the continuation.
+    /// the final `result` object carries the answer + declaration, and the last
+    /// non-empty `continuationField` value is the resume handle.
     private func extractStreamJSONResult(_ output: Data) -> Signals {
         var s = Signals()
         var result = ""
@@ -147,7 +145,11 @@ public struct ConfiguredDriver: OneShotDriver {
             guard let data = line.data(using: .utf8),
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             else { continue }
-            if let id = obj["session_id"] as? String, !id.isEmpty { s.continuation = id }
+            // The descriptor's key, not a fixed one: a row that names its handle and
+            // then has cowork read a different key would advertise follow-up and
+            // resume with someone else's session id — or with nothing.
+            if let field = descriptor.continuationField,
+               let id = obj[field] as? String, !id.isEmpty { s.continuation = id }
             switch obj["type"] as? String {
             case "assistant":
                 if let msg = obj["message"] as? [String: Any],

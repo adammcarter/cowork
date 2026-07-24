@@ -3,18 +3,16 @@ import Testing
 
 @testable import CoworkCore
 
-/// Grok's one-shot wire as a core value: a different protocol from claude's
-/// stream-json (task as an argument, one JSON object out, its own PATH), exercised
-/// without spawning grok.
+/// The argv + single-JSON-object one-shot wire: the task as an argument, one object
+/// out, the verdict read from the field declaring why generation stopped, and the
+/// executable's own directory leading PATH.
 ///
-/// These assertions are the FROZEN PIN for grok's wire — written against the
-/// hand-written `GrokOneShotDriver` and proven identical to `ConfiguredDriver`
-/// interpreting `BuiltinDescriptors.grok` before that driver was deleted.
-@Suite("Grok built-in wire")
-struct GrokOneShotDriverTests {
-    private let driver = ConfiguredDriver(name: "grok",
-                                          executable: URL(fileURLWithPath: "/opt/grok/bin/grok"),
-                                          descriptor: BuiltinDescriptors.grok)
+/// These assertions are the FROZEN PIN for this shape. They were written against a
+/// hand-written driver, proven identical to `ConfiguredDriver`, and now run against
+/// the descriptor the shipped example config declares.
+@Suite("argv + json-field one-shot wire")
+struct JsonFieldWireTests {
+    private let driver = try! ExampleConfig.driver("grok")
 
     @Test("invocation passes the task as -p, asks for JSON, writes nothing to stdin, and puts grok's bin dir on PATH")
     func invocationShape() {
@@ -22,7 +20,10 @@ struct GrokOneShotDriverTests {
         #expect(inv.arguments == ["-p", "summarise", "--output-format", "json",
                                   "--no-auto-update", "--always-approve"])
         #expect(inv.stdin == nil, "grok's task is an argument, not stdin")
-        #expect(inv.extraEnvironment == ["PATH=/opt/grok/bin:/usr/bin:/bin:/usr/sbin:/sbin"])
+        #expect(inv.extraEnvironment.contains("GROK_CLAUDE_MCPS_ENABLED=false"),
+                "the row's env travels with the one-shot too, not only the session")
+        #expect(inv.extraEnvironment.last?.hasPrefix("PATH=") == true, "the exe dir leads PATH")
+        #expect(inv.extraEnvironment.last?.hasSuffix(":/usr/bin:/bin:/usr/sbin:/sbin") == true)
     }
 
     @Test("a workspace becomes --cwd and a resume id becomes -r, in that order")
@@ -71,8 +72,8 @@ struct GrokOneShotDriverTests {
         #expect(outcome.text == "ok")
     }
 
-    @Test("the deadline diagnostic is grok's own")
+    @Test("a deadline is a deadline, whichever CLI hit it")
     func deadlineDiagnostic() {
-        #expect(driver.deadlineDiagnostic == "cli.grok.deadline")
+        #expect(driver.deadlineDiagnostic == "cli.deadline")
     }
 }
