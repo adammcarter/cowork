@@ -46,14 +46,38 @@ public enum Verdict {
     }
 //: @use-case:end truth.endpoint.unknown_finish_reason_is_not_a_success#unknown_finish_reason_is
 
-    /// A CLI agent's declared outcome, weighed against its exit code.
+    // MARK: CLI agents
+    //
+    // Each rule below is named for the DECLARATION SHAPE it weighs, never for the
+    // agent that happens to emit it, and its diagnostics are fixed strings with no
+    // name interpolated into them. Which CLI produced an outcome already lives in
+    // the dispatch record's backend id; repeating it inside the diagnostic would
+    // make two agents that spoke the identical protocol and failed the identical
+    // way look like two different failures, and nothing could be compared across
+    // them. A diagnostic names the protocol and the mechanism; the record names
+    // the backend.
+
+    /// Exit status only: the weakest declaration there is.
+    ///
+    /// Honest ONLY for a CLI that emits no machine declaration cowork reads — hence
+    /// a row may select it only alongside raw output, and it carries a
+    /// verdict-unverified marker in capabilities until a performed journey proves
+    /// the failure mode really does surface as a nonzero exit (ADR 000).
+    public static func exitCode(_ exitCode: Int32)
+        -> (state: DispatchRecord.State, diagnostics: [String]) {
+        if exitCode == 0 { return (.succeeded, []) }
+        return (.failed, ["cli.exit", "exit=\(exitCode)"])
+    }
+
+    /// A result object carrying a subtype and an `is_error` flag (the stream-json
+    /// shape), weighed against the exit code.
     ///
     /// The two can disagree, and the disagreement is recorded rather than resolved
-    /// in the transport's favour. Proven in the wild: Claude Code declared
+    /// in the transport's favour. Proven in the wild: an agent declared
     /// `subtype: "success"` AND `is_error: true` while exiting 1, when it was not
     /// logged in.
 //: @use-case:truth.cli.declared_error_with_exit_zero_is_failed#declared_error_with_exit
-    public static func cli(declaredSubtype: String?, isError: Bool, exitCode: Int32)
+    public static func declaredResult(declaredSubtype: String?, isError: Bool, exitCode: Int32)
         -> (state: DispatchRecord.State, diagnostics: [String]) {
         guard let subtype = declaredSubtype else {
             // The agent never said anything about itself. An exit code alone is not
@@ -71,98 +95,73 @@ public enum Verdict {
         }
         return (.succeeded, [])
     }
+//: @use-case:end truth.cli.declared_error_with_exit_zero_is_failed#declared_error_with_exit
 
-    /// Grok's declared outcome, weighed against its exit code.
+    /// A JSON field declaring why generation stopped, weighed against the exit code.
     ///
-    /// Grok's one-shot JSON declares a `stopReason` rather than claude's `subtype`:
-    /// `EndTurn` is a clean finish, `MaxTokens` is a truncation. The rule is the
-    /// same one every backend gets — the worker's own declaration is the verdict,
-    /// the exit code is a diagnostic beside it, and an unfamiliar declaration is
-    /// never optimistically read as success.
-    public static func grok(stopReason: String?, exitCode: Int32)
+    /// `EndTurn` is a clean finish; `MaxTokens` is a truncation, and a truncated
+    /// answer is a failure however clean the exit — the same rule an endpoint's
+    /// `finish_reason: length` gets. An unfamiliar declaration is never optimistically
+    /// read as success.
+    public static func stopReason(_ reason: String?, exitCode: Int32)
         -> (state: DispatchRecord.State, diagnostics: [String]) {
-        guard let reason = stopReason else {
+        guard let reason else {
             // No readable declaration. The process ended; that is not the same as
             // the work being done.
-            return (.failed, ["cli.grok.no-declared-result", "exit=\(exitCode)"])
+            return (.failed, ["cli.stop-reason.absent", "exit=\(exitCode)"])
         }
         switch reason {
         case "EndTurn":
             if exitCode != 0 {
                 // The turn finished but the process disagreed. The declaration wins,
-                // the disagreement is recorded rather than quietly resolved.
-                return (.succeeded, ["cli.grok.nonzero-exit-despite-endturn", "exit=\(exitCode)"])
+                // the disagreement is recorded rather than quietly resolved — and it
+                // is the identical product fact `declaredResult` records, so it is
+                // named identically rather than given a shape-specific twin.
+                return (.succeeded, ["cli.nonzero-exit-despite-declared-success", "exit=\(exitCode)"])
             }
             return (.succeeded, [])
         case "MaxTokens":
             // A truncated answer, however clean the exit. Handing it back as success
             // is the exact lie this product exists to prevent.
-            return (.failed, ["cli.grok.truncated", "stopReason=MaxTokens"])
+            return (.failed, ["cli.stop-reason.truncated", "stopReason=MaxTokens"])
         default:
-            return (.failed, ["cli.grok.unexpected-stop", "stopReason=\(reason)"])
+            return (.failed, ["cli.stop-reason.unexpected", "stopReason=\(reason)"])
         }
     }
 
-    /// Codex-exec's declared outcome.
+    /// An ACP (Agent Client Protocol) turn's declared stop reason.
     ///
-    /// `codex exec` runs the task from stdin and prints its work, but in this mode
-    /// it declares no subtype or stopReason the way claude and grok do — so the exit
-    /// is the only signal there is. That is a weaker declaration than the other
-    /// dialects', and the rule says so plainly rather than inventing a richer one:
-    /// a clean exit is a success, a nonzero exit is a failure that records the code.
-    public static func codex(exitCode: Int32)
-        -> (state: DispatchRecord.State, diagnostics: [String]) {
-        exitOnly(cliName: "codex", exitCode: exitCode)
-    }
-
-    /// The exit-code-only rule, generalised so a config-wired CLI gets its own label
-    /// (`cli.<name>.exit`) while codex stays byte-identical (`cli.codex.exit`). This
-    /// parameterises the diagnostic LABEL only, never the decision. It is honest ONLY
-    /// for a CLI that emits no machine declaration cowork reads — hence a generic row
-    /// may select it only with raw output, and it is marked verdict-unverified in
-    /// capabilities until a performed journey proves the failure mode surfaces (ADR 000).
-    public static func exitOnly(cliName: String, exitCode: Int32)
-        -> (state: DispatchRecord.State, diagnostics: [String]) {
-        if exitCode == 0 { return (.succeeded, []) }
-        return (.failed, ["cli.\(cliName).exit", "exit=\(exitCode)"])
-    }
-
-    /// Grok ACP (Agent Client Protocol) interactive stopReason.
-    ///
-    /// The live ACP wire uses snake_case `end_turn` rather than one-shot grok's
-    /// `EndTurn`. Same product rule: the worker's declaration is the verdict, and
-    /// an unfamiliar stopReason is never optimistically read as success.
-    public static func grokAcp(stopReason: String)
+    /// The live ACP wire declares snake_case `end_turn`; there is no exit code to
+    /// weigh it against mid-session, so the declaration is the whole verdict. An
+    /// unfamiliar stopReason is never optimistically read as success.
+    public static func acp(stopReason: String)
         -> (state: DispatchRecord.State, diagnostics: [String]) {
         switch stopReason {
         case "end_turn":
             return (.succeeded, [])
         default:
-            return (.failed, ["cli.grok-acp.unexpected-stop", "stopReason=\(stopReason)"])
+            return (.failed, ["cli.acp.unexpected-stop", "stopReason=\(stopReason)"])
         }
     }
 
-    /// Codex MCP (interactive `codex mcp-server`) turn outcome.
+    /// An MCP `tools/call` turn's outcome.
     ///
-    /// Codex's interactive turn declares no `stopReason` the way grok's ACP does; it
-    /// returns an MCP `CallToolResult` whose `structuredContent.content` carries the
-    /// assistant text (proven live — the body is non-empty on a clean turn, unlike a
-    /// turn a host hook derailed). So the declaration cowork weighs is simply whether
-    /// a result with content came back:
+    /// An MCP turn declares no stop reason the way ACP does; it returns a
+    /// `CallToolResult` whose structured member carries the assistant text (proven
+    /// live — the body is non-empty on a clean turn, unlike a turn a host hook
+    /// derailed). So the declaration cowork weighs is simply whether a result with
+    /// content came back:
     /// - a JSON-RPC error member is the worker declaring the turn failed;
-    /// - a result with no `structuredContent` is not an answer — the process replied,
-    ///   but said nothing, which is the codex-mcp equivalent of a missing declaration;
+    /// - a result with no content is not an answer — the process replied, but said
+    ///   nothing, which is this protocol's equivalent of a missing declaration;
     /// - a result carrying content is a success, and the content is the reply.
-    ///
-    /// `hasContent` is whether the result carried a usable `structuredContent`;
-    /// `rpcError`, when present, is the JSON-RPC error described for the caller.
-    public static func codexMcp(hasContent: Bool, rpcError: String?)
+    public static func mcp(hasContent: Bool, rpcError: String?)
         -> (state: DispatchRecord.State, diagnostics: [String]) {
         if let rpcError {
-            return (.failed, ["cli.codex-mcp.rpc-error", rpcError])
+            return (.failed, ["cli.mcp.rpc-error", rpcError])
         }
         if !hasContent {
-            return (.failed, ["cli.codex-mcp.no-result"])
+            return (.failed, ["cli.mcp.no-result"])
         }
         return (.succeeded, [])
     }

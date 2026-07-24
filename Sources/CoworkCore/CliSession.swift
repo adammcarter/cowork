@@ -90,8 +90,9 @@ public final class CliSession: @unchecked Sendable {
                 result = (obj["result"] as? String) ?? result
                 // The turn is over the moment the worker says it is. The session
                 // stays alive for the next one.
-                let verdict = Verdict.cli(declaredSubtype: declared?.subtype,
-                                          isError: declared?.isError ?? false, exitCode: 0)
+                let verdict = Verdict.declaredResult(declaredSubtype: declared?.subtype,
+                                                     isError: declared?.isError ?? false,
+                                                     exitCode: 0)
                 lastSessionID = sessionID
                 return .init(state: verdict.state, text: result, diagnostics: verdict.diagnostics,
                              transcript: transcript, workerAlive: workerAlive)

@@ -59,15 +59,22 @@ struct CliBuiltinGoldenTests {
         #expect(d.deadlineDiagnostic == "cli.codex.deadline")
     }
 
-    @Test("the exit-code strategy names the cli, and codex's own bytes are unchanged")
-    func exitOnlyLabelling() {
-        #expect(Verdict.exitOnly(cliName: "codex", exitCode: 1).diagnostics == ["cli.codex.exit", "exit=1"])
-        #expect(Verdict.codex(exitCode: 1).diagnostics == ["cli.codex.exit", "exit=1"])
+    /// The label carries the MECHANISM, never the backend. Which CLI produced an
+    /// outcome already lives in the dispatch record's backend id, so two CLIs that
+    /// failed the identical way must be indistinguishable here — otherwise nothing
+    /// about them can ever be compared.
+    @Test("the exit-code strategy names the mechanism only — two different clis emit identical bytes")
+    func exitCodeLabelIsBackendAgnostic() {
+        #expect(Verdict.exitCode(1).diagnostics == ["cli.exit", "exit=1"])
 
-        let opencode = driver("opencode", URL(fileURLWithPath: "/o/opencode"), BuiltinDescriptors.codex)
-        let out = opencode.parse(output: Data("x".utf8), exitStatus: 1 << 8)
-        #expect(out.diagnostics == ["cli.opencode.exit", "exit=1"], "a config-wired cli gets its own label")
-        #expect(out.state == .failed)
+        let one = driver("opencode", URL(fileURLWithPath: "/o/opencode"), BuiltinDescriptors.codex)
+        let two = driver("somethingelse", URL(fileURLWithPath: "/s/somethingelse"), BuiltinDescriptors.codex)
+        let outOne = one.parse(output: Data("x".utf8), exitStatus: 1 << 8)
+        let outTwo = two.parse(output: Data("x".utf8), exitStatus: 1 << 8)
+        #expect(outOne.diagnostics == ["cli.exit", "exit=1"])
+        #expect(outOne.diagnostics == outTwo.diagnostics,
+                "the backend name belongs to the record, never to the diagnostic")
+        #expect(outOne.state == .failed)
     }
 
     /// The branches the shape spike got wrong: a declared success with a nonzero exit
@@ -89,10 +96,10 @@ struct CliBuiltinGoldenTests {
         let endTurnNonzero = grok.parse(
             output: Data("{\"text\":\"a\",\"stopReason\":\"EndTurn\"}".utf8), exitStatus: 5 << 8)
         #expect(endTurnNonzero.state == .succeeded)
-        #expect(endTurnNonzero.diagnostics == ["cli.grok.nonzero-exit-despite-endturn", "exit=5"])
+        #expect(endTurnNonzero.diagnostics == ["cli.nonzero-exit-despite-declared-success", "exit=5"])
 
         let noDeclaration = grok.parse(output: Data("{\"text\":\"a\"}".utf8), exitStatus: 0)
         #expect(noDeclaration.state == .failed)
-        #expect(noDeclaration.diagnostics == ["cli.grok.no-declared-result", "exit=0"])
+        #expect(noDeclaration.diagnostics == ["cli.stop-reason.absent", "exit=0"])
     }
 }

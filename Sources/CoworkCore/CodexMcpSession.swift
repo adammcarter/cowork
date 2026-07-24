@@ -76,14 +76,14 @@ public final class CodexMcpSession: SessionTransport, @unchecked Sendable {
             "params": ["name": toolName, "arguments": arguments] as [String: Any],
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: message) else {
-            return .init(state: .failed, text: "", diagnostics: ["cli.codex-mcp.message-unencodable"],
+            return .init(state: .failed, text: "", diagnostics: ["cli.mcp.message-unencodable"],
                          transcript: "", workerAlive: isAlive)
         }
         do {
             try pipe.writeLine(data)
         } catch {
             pipe.markExited()
-            return .init(state: .failed, text: "", diagnostics: ["cli.codex-mcp.worker-unreachable"],
+            return .init(state: .failed, text: "", diagnostics: ["cli.mcp.worker-unreachable"],
                          transcript: "", workerAlive: false)
         }
 
@@ -97,7 +97,7 @@ public final class CodexMcpSession: SessionTransport, @unchecked Sendable {
 
             if let error = obj["error"] {
                 let detail = String(describing: error)
-                let verdict = Verdict.codexMcp(hasContent: false, rpcError: detail)
+                let verdict = Verdict.mcp(hasContent: false, rpcError: detail)
                 return .init(state: verdict.state, text: "", diagnostics: verdict.diagnostics,
                              transcript: "", workerAlive: isAlive)
             }
@@ -106,7 +106,7 @@ public final class CodexMcpSession: SessionTransport, @unchecked Sendable {
             // Capture/refresh the thread so the next turn uses `codex-reply`.
             if let sid = structured?["threadId"] as? String, !sid.isEmpty { threadId = sid }
             let text = (structured?["content"] as? String) ?? ""
-            let verdict = Verdict.codexMcp(hasContent: structured != nil, rpcError: nil)
+            let verdict = Verdict.mcp(hasContent: structured != nil, rpcError: nil)
             var transcript = ""
             if !text.isEmpty { transcript += "said: \(text)\n" }
             return .init(state: verdict.state, text: text, diagnostics: verdict.diagnostics,
@@ -116,8 +116,8 @@ public final class CodexMcpSession: SessionTransport, @unchecked Sendable {
         // No result before the deadline: the worker died mid-turn or went silent.
         pipe.markExited()
         return .init(state: .failed, text: "",
-                     diagnostics: ["cli.codex-mcp.no-declared-result",
-                                   "cli.codex-mcp.worker-exited-mid-turn"],
+                     diagnostics: ["cli.mcp.no-declared-result",
+                                   "cli.mcp.worker-exited-mid-turn"],
                      transcript: "", workerAlive: false)
     }
 

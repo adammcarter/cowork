@@ -157,7 +157,7 @@ struct CodexMcpSessionTests {
 
         let turn = session.turn("FAIL_NOCONTENT: derailed turn")
         #expect(turn.state == .failed)
-        #expect(turn.diagnostics.contains("cli.codex-mcp.no-result"))
+        #expect(turn.diagnostics.contains("cli.mcp.no-result"))
         #expect(turn.workerAlive, "a turn that returned no answer is not a dead worker")
     }
 

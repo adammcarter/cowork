@@ -19,7 +19,7 @@ public enum BuiltinDescriptors {
         resumeArguments: ["--resume", "{resume}"],
         output: .streamJSONResult,
         continuationField: "session_id",
-        verdict: .claudeDeclared,
+        verdict: .declaredResult,
         deadlineDiagnostic: "cli.deadline")
 //: @use-case:end cli.claude.dispatch_is_contained_and_collected#claude_wire
 
@@ -34,7 +34,7 @@ public enum BuiltinDescriptors {
         prependExeDirToPath: true,
         output: .jsonField("text"),
         continuationField: "sessionId",
-        verdict: .grokStopReason,
+        verdict: .stopReason,
         deadlineDiagnostic: "cli.grok.deadline")
 
 //: @use-case:cli.codex.dispatch_is_contained_and_collected#codex_wire
@@ -48,7 +48,7 @@ public enum BuiltinDescriptors {
         resumeArguments: [],
         output: .raw,
         continuationField: nil,
-        verdict: .exitCodeOnly,
+        verdict: .exitCode,
         deadlineDiagnostic: "cli.codex.deadline")
 //: @use-case:end cli.codex.dispatch_is_contained_and_collected#codex_wire
 

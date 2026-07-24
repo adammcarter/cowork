@@ -58,14 +58,14 @@ public final class GrokAcpSession: SessionTransport, @unchecked Sendable {
             ] as [String: Any],
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: message) else {
-            return .init(state: .failed, text: "", diagnostics: ["cli.grok-acp.message-unencodable"],
+            return .init(state: .failed, text: "", diagnostics: ["cli.acp.message-unencodable"],
                          transcript: "", workerAlive: isAlive)
         }
         do {
             try pipe.writeLine(data)
         } catch {
             pipe.markExited()
-            return .init(state: .failed, text: "", diagnostics: ["cli.grok-acp.worker-unreachable"],
+            return .init(state: .failed, text: "", diagnostics: ["cli.acp.worker-unreachable"],
                          transcript: "", workerAlive: false)
         }
 
@@ -82,12 +82,12 @@ public final class GrokAcpSession: SessionTransport, @unchecked Sendable {
                 if let error = obj["error"] {
                     let detail = String(describing: error)
                     return .init(state: .failed, text: accumulated,
-                                 diagnostics: ["cli.grok-acp.rpc-error", detail],
+                                 diagnostics: ["cli.acp.rpc-error", detail],
                                  transcript: transcript, workerAlive: isAlive)
                 }
                 let result = obj["result"] as? [String: Any]
                 let stopReason = (result?["stopReason"] as? String) ?? "<absent>"
-                let verdict = Verdict.grokAcp(stopReason: stopReason)
+                let verdict = Verdict.acp(stopReason: stopReason)
                 if !accumulated.isEmpty { transcript += "said: \(accumulated)\n" }
                 return .init(state: verdict.state, text: accumulated,
                              diagnostics: verdict.diagnostics,
@@ -108,8 +108,8 @@ public final class GrokAcpSession: SessionTransport, @unchecked Sendable {
         // No result before the deadline: the worker died mid-turn or went silent.
         pipe.markExited()
         return .init(state: .failed, text: accumulated,
-                     diagnostics: ["cli.grok-acp.no-declared-result",
-                                   "cli.grok-acp.worker-exited-mid-turn"],
+                     diagnostics: ["cli.acp.no-declared-result",
+                                   "cli.acp.worker-exited-mid-turn"],
                      transcript: transcript, workerAlive: false)
     }
 

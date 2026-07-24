@@ -1314,7 +1314,7 @@ def generic_global(name="stubagent", executable=None, body=None, env=None) -> st
     lines += (body or ['task_delivery = "argv"',
                        'args = ["--task", "{task}"]',
                        'output = "raw"',
-                       'verdict = "exit_code_only"'])
+                       'verdict = "exit_code"'])
     text = "\n".join(lines) + "\n"
     if env:
         text += f"\n[cli.{name}.env]\n" + "".join(f'{k} = "{v}"\n' for k, v in env.items())
@@ -1388,7 +1388,7 @@ def _():
     hostile = generic_global(name="evil", body=['task_delivery = "argv"',
                                                 'args = ["--task", "{task}"]',
                                                 'output = "raw"',
-                                                'verdict = "exit_code_only"'])
+                                                'verdict = "exit_code"'])
     with Fixture(project_config=hostile) as f:
         code, err = f.refusal()
         require(code == 78, f"a config refusal must exit EX_CONFIG(78); got {code}: {err[:300]}")
@@ -1449,7 +1449,7 @@ def _():
         rows = c.ok("capabilities", backend="stubagent", _timeout=90)
         require("stubagent" in rows, f"an ordinary env key must load; got {rows}")
     path_flag = generic_global(body=['task_delivery = "argv"', 'args = ["--task", "{task}"]',
-                                     'output = "raw"', 'verdict = "exit_code_only"',
+                                     'output = "raw"', 'verdict = "exit_code"',
                                      "prepend_exe_dir_to_path = true"])
     with Fixture(project_config='', global_config=path_flag) as f, f.server() as c:
         rows = c.ok("capabilities", backend="stubagent", _timeout=90)
@@ -1461,21 +1461,21 @@ def _():
 @journey("cli.generic.incoherent_descriptor_is_refused_at_load")
 def _():
     cases = [
-        ("verdict='claude_declared' with a non-stream output",
+        ("verdict='declared_result' with a non-stream output",
          ['task_delivery = "argv"', 'args = ["{task}"]', 'output = "raw"',
-          'verdict = "claude_declared"'], "stream_json_result"),
-        ("verdict='grok_stop_reason' with a non-json output",
+          'verdict = "declared_result"'], "stream_json_result"),
+        ("verdict='stop_reason' with a non-json output",
          ['task_delivery = "argv"', 'args = ["{task}"]', 'output = "raw"',
-          'verdict = "grok_stop_reason"'], "json_field"),
-        ("verdict='exit_code_only' with a declaring output",
+          'verdict = "stop_reason"'], "json_field"),
+        ("verdict='exit_code' with a declaring output",
          ['task_delivery = "stdin_raw"', 'args = []', 'output = "stream_json_result"',
-          'verdict = "exit_code_only"'], "raw"),
+          'verdict = "exit_code"'], "raw"),
         ("output='json_field' with no field named",
          ['task_delivery = "argv"', 'args = ["{task}"]', 'output = "json_field"',
-          'verdict = "grok_stop_reason"'], "output_field"),
+          'verdict = "stop_reason"'], "output_field"),
         ("{task} in args without argv delivery",
          ['task_delivery = "stdin_raw"', 'args = ["{task}"]', 'output = "raw"',
-          'verdict = "exit_code_only"'], "argv"),
+          'verdict = "exit_code"'], "argv"),
     ]
     seen = []
     for label, body, expected in cases:
@@ -1502,12 +1502,12 @@ def _():
     # reported as ASSERTED.
     wired = generic_global(name="assertive",
                            body=['task_delivery = "argv"', 'args = ["--task", "{task}"]',
-                                 'output = "raw"', 'verdict = "exit_code_only"',
+                                 'output = "raw"', 'verdict = "exit_code"',
                                  'continuation_field = "sid"', 'resume_args = ["-r", "{resume}"]'])
     with Fixture(project_config='', global_config=wired) as f, f.server() as c:
         row = c.ok("capabilities", backend="assertive", _timeout=90)
         require("cli.assertive.verdict-unverified" in row,
-                f"exit_code_only is honest only if this CLI's failures really exit nonzero, "
+                f"exit_code is honest only if this CLI's failures really exit nonzero, "
                 f"which is not statically knowable — it must be reported as unverified; got {row}")
         require("cli.assertive.follow-up-configured-unverified" in row,
                 f"follow-up wired from config is asserted, not proven; got {row}")

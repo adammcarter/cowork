@@ -47,8 +47,8 @@ public struct ConfiguredDriver: OneShotDriver {
         case .stdinRaw:
             stdin = Data(task.utf8)
         case .stdinJSONStreamUser:
-            // Claude's exact one-shot envelope. Built key-for-key as the oracle did,
-            // so JSONSerialization emits identical bytes.
+            // The stream-json user-message envelope, built key-for-key as the oracle
+            // driver did so JSONSerialization emits identical bytes.
             let message: [String: Any] = [
                 "type": "user",
                 "message": ["role": "user", "content": [["type": "text", "text": task]]],
@@ -80,12 +80,13 @@ public struct ConfiguredDriver: OneShotDriver {
         let signals = extract(output)
         let verdict: (state: DispatchRecord.State, diagnostics: [String])
         switch descriptor.verdict {
-        case .exitCodeOnly:
-            verdict = Verdict.exitOnly(cliName: name, exitCode: exitCode)
-        case .claudeDeclared:
-            verdict = Verdict.cli(declaredSubtype: signals.subtype, isError: signals.isError, exitCode: exitCode)
-        case .grokStopReason:
-            verdict = Verdict.grok(stopReason: signals.stopReason, exitCode: exitCode)
+        case .exitCode:
+            verdict = Verdict.exitCode(exitCode)
+        case .declaredResult:
+            verdict = Verdict.declaredResult(declaredSubtype: signals.subtype,
+                                             isError: signals.isError, exitCode: exitCode)
+        case .stopReason:
+            verdict = Verdict.stopReason(signals.stopReason, exitCode: exitCode)
         }
         return CliOutcome(state: verdict.state, text: signals.text,
                           diagnostics: verdict.diagnostics + signals.extraDiagnostics,
@@ -112,30 +113,30 @@ public struct ConfiguredDriver: OneShotDriver {
         }
     }
 
-    /// Codex's shape: the whole stdout is the answer; the exit code is the only signal.
+    /// Raw: the whole stdout is the answer; the exit code is the only signal.
     private func extractRaw(_ output: Data) -> Signals {
         let text = String(decoding: output, as: UTF8.self)
         return Signals(text: text, transcript: String(text.prefix(2000)))
     }
 
-    /// Grok's shape: the last well-formed JSON object; `field` holds the answer,
-    /// `stopReason` the declaration, `continuationField` the resume handle. Tolerates
-    /// preamble by scanning for the last top-level object.
+    /// One JSON object: the last well-formed top-level object; `field` holds the
+    /// answer, `stopReasonField` the declaration, `continuationField` the resume
+    /// handle. Tolerates preamble by scanning for the last top-level object.
     private func extractJSONField(_ output: Data, field: String) -> Signals {
         guard let obj = lastJSONObject(in: output) else {
             return Signals(transcript: String(String(decoding: output, as: UTF8.self).prefix(2000)),
-                           extraDiagnostics: ["cli.\(name).unparseable-output"])
+                           extraDiagnostics: ["cli.unparseable-output"])
         }
         var s = Signals()
         s.text = (obj[field] as? String) ?? ""
-        s.stopReason = obj["stopReason"] as? String
+        s.stopReason = obj[descriptor.stopReasonField] as? String
         if let cf = descriptor.continuationField { s.continuation = obj[cf] as? String }
         if let thought = obj["thought"] as? String, !thought.isEmpty { s.transcript += "thinking: \(thought)\n" }
         if !s.text.isEmpty { s.transcript += "said: \(s.text)\n" }
         return s
     }
 
-    /// Claude's shape: a stream of JSON events; assistant text builds the transcript,
+    /// Stream-json: a stream of JSON events; assistant text builds the transcript,
     /// the final `result` object carries the answer + declaration, `session_id` (last
     /// non-empty) is the continuation.
     private func extractStreamJSONResult(_ output: Data) -> Signals {

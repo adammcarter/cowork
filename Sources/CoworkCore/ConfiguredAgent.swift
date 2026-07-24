@@ -81,7 +81,7 @@ public struct ConfiguredAgent: Sendable {
             // nothing has yet proven the worker HONORS it rather than starting fresh.
             out.append("cli.\(name).follow-up-configured-unverified")
         }
-        if descriptor.verdict == .exitCodeOnly {
+        if descriptor.verdict == .exitCode {
             // Honest only if this CLI's failures really do surface as a nonzero exit.
             // Statically unknowable; a performed journey clears it.
             out.append("cli.\(name).verdict-unverified")

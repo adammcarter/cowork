@@ -46,19 +46,19 @@ struct GrokOneShotDriverTests {
         #expect(outcome.diagnostics.isEmpty)
     }
 
-    @Test("parse treats MaxTokens as a truncation failure, via Verdict.grok")
+    @Test("parse treats MaxTokens as a truncation failure, via Verdict.stopReason")
     func parseTruncated() {
         let body = #"{"text":"cut off","stopReason":"MaxTokens","sessionId":"g-2"}"#
         let outcome = driver.parse(output: Data(body.utf8), exitStatus: 0)
         #expect(outcome.state == .failed)
-        #expect(outcome.diagnostics.contains("cli.grok.truncated"))
+        #expect(outcome.diagnostics.contains("cli.stop-reason.truncated"))
     }
 
     @Test("output with no readable JSON object is a named failure")
     func parseUnparseable() {
         let outcome = driver.parse(output: Data("not json at all".utf8), exitStatus: 1)
         #expect(outcome.state == .failed)
-        #expect(outcome.diagnostics.contains("cli.grok.unparseable-output"))
+        #expect(outcome.diagnostics.contains("cli.unparseable-output"))
     }
 
     /// Grok may print chatter before its JSON under some flags, so the parse scans

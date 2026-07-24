@@ -51,7 +51,7 @@ struct GenericCliDispatchTests {
             env: [.init(key: "OPENCODE_MODEL", value: .literal("ollama/qwen2.5-coder:7b")),
                   .init(key: "OPENCODE_PERMISSION", value: .literal("allow"))],
             output: .raw,
-            verdict: .exitCodeOnly,
+            verdict: .exitCode,
             isolate: isolate,
             deadlineDiagnostic: "cli.opencode.deadline")
     }
@@ -85,7 +85,7 @@ struct GenericCliDispatchTests {
         let outcome = CliRunner(executable: URL(fileURLWithPath: "/o/bin/opencode"),
                                 driver: driver, spawn: spawner).run(task: "t", workspace: nil)
         #expect(outcome.state == .failed)
-        #expect(outcome.diagnostics == ["cli.opencode.exit", "exit=2"])
+        #expect(outcome.diagnostics == ["cli.exit", "exit=2"])
     }
 
     // Test 13 — isolation lifecycle
@@ -133,7 +133,7 @@ struct GenericCliDispatchTests {
             name: "x", executable: URL(fileURLWithPath: "/x/bin/x"),
             descriptor: CliDescriptor(taskDelivery: .argv, baseArguments: ["run", "{task}"],
                                       workspaceArguments: ["--cwd", "{workspace}"],
-                                      output: .raw, verdict: .exitCodeOnly,
+                                      output: .raw, verdict: .exitCode,
                                       deadlineDiagnostic: "cli.x.deadline"))
         // The task is itself a placeholder string, and contains shell metacharacters.
         let hostile = "{workspace} ; rm -rf / && echo $(whoami)"
@@ -149,7 +149,7 @@ struct GenericCliDispatchTests {
             name: "x", executable: URL(fileURLWithPath: "/x/bin/x"),
             descriptor: CliDescriptor(taskDelivery: .argv,
                                       baseArguments: ["--label=pre{task}post", "{task}"],
-                                      output: .raw, verdict: .exitCodeOnly,
+                                      output: .raw, verdict: .exitCode,
                                       deadlineDiagnostic: "cli.x.deadline"))
         let inv = driver.invocation(task: "T", workspace: nil, resume: nil)
         #expect(inv.arguments == ["--label=pre{task}post", "T"],
@@ -163,7 +163,7 @@ struct GenericCliDispatchTests {
             descriptor: CliDescriptor(taskDelivery: .argv, baseArguments: ["run", "{task}"],
                                       workspaceArguments: ["--cwd", "{workspace}"],
                                       resumeArguments: ["--session", "{resume}"],
-                                      output: .raw, verdict: .exitCodeOnly,
+                                      output: .raw, verdict: .exitCode,
                                       deadlineDiagnostic: "cli.x.deadline"))
         let inv = driver.invocation(task: "T", workspace: nil, resume: nil)
         #expect(inv.arguments == ["run", "T"], "no dangling flags with empty values")

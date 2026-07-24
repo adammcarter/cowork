@@ -141,7 +141,7 @@ use_cases:
       - Capabilities reports the config-wired CLI as an available backend of origin=global, with no new Swift written for it.
       - The dispatch reaches a terminal state and the agent's answer is returned verbatim.
       - The descriptor's argv template and env reach the process — the answer could not be produced otherwise.
-      - A nonzero exit is a NAMED failure diagnostic `cli.<name>.exit`, never a quiet success.
+      - A nonzero exit is a NAMED failure diagnostic `cli.exit`, never a quiet success.
     host_applicability:
       - host_surface: claude.cli
         supported: true
@@ -312,9 +312,9 @@ use_cases:
       - id: cli.generic.incoherent_descriptor_is_refused_at_load.main
         kind: steps
         steps:
-          - Pair verdict='claude_declared' with an output shape that is not stream_json_result.
-          - Pair verdict='grok_stop_reason' with an output shape that is not json_field.
-          - Pair verdict='exit_code_only' with a declaring output shape.
+          - Pair verdict='declared_result' with an output shape that is not stream_json_result.
+          - Pair verdict='stop_reason' with an output shape that is not json_field.
+          - Pair verdict='exit_code' with a declaring output shape.
           - Select output='json_field' without naming the field, and put {task} in args without task_delivery='argv'.
     observable_outcomes:
       - Each incoherent pairing is refused at load with a diagnostic naming the cli and what it needs instead.
@@ -360,7 +360,7 @@ use_cases:
           - Ask capabilities for a config-wired CLI and for the built-in dialects.
           - Compare the diagnostics each carries.
     observable_outcomes:
-      - A config-wired row selecting exit_code_only carries `cli.<name>.verdict-unverified` — honest only if that CLI's failures really do surface as a nonzero exit, which is not statically knowable.
+      - A config-wired row selecting exit_code carries `cli.<name>.verdict-unverified` — honest only if that CLI's failures really do surface as a nonzero exit, which is not statically knowable.
       - A config-wired row with follow-up wired carries `cli.<name>.follow-up-configured-unverified` — cowork will pass the handle back, but nothing has proven the worker honors it.
       - A built-in carries neither, because its wire was proven against the real CLI.
       - Capability is derived from the wiring the row was actually given, never declared by the row itself, so a config row cannot claim a capability it has no mechanism for.

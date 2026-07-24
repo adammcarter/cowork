@@ -39,7 +39,7 @@ struct CliDescriptorConfigTests {
             output = "json_field"
             output_field = "result"
             continuation_field = "sessionID"
-            verdict = "grok_stop_reason"
+            verdict = "stop_reason"
 
             [cli.opencode.env]
             OPENCODE_MODEL = "ollama/qwen2.5-coder:7b"
@@ -57,7 +57,7 @@ struct CliDescriptorConfigTests {
             #expect(d.resumeArguments == ["--session", "{resume}"])
             #expect(d.output == .jsonField("result"))
             #expect(d.continuationField == "sessionID")
-            #expect(d.verdict == .grokStopReason)
+            #expect(d.verdict == .stopReason)
             #expect(d.isolate?.variable == "XDG_CONFIG_HOME")
             #expect(d.env.contains(.init(key: "OPENCODE_MODEL", value: .literal("ollama/qwen2.5-coder:7b"))))
             #expect(d.env.contains(.init(key: "SOME_TOKEN", value: .reference("MY_TOKEN"))))
@@ -120,7 +120,7 @@ struct CliDescriptorConfigTests {
                 executable = "/opt/x/bin/x"
                 kind = "generic"
                 output = "raw"
-                verdict = "exit_code_only"
+                verdict = "exit_code"
 
                 [cli.x.env]
                 \(key) = "anything"
@@ -135,7 +135,7 @@ struct CliDescriptorConfigTests {
             executable = "/opt/x/bin/x"
             kind = "generic"
             output = "raw"
-            verdict = "exit_code_only"
+            verdict = "exit_code"
 
             [cli.x.env]
             MY_MODEL = "llama"
@@ -151,9 +151,9 @@ struct CliDescriptorConfigTests {
     @Test("incoherent verdict/output (and {task} misuse) pairs are load errors")
     func incoherentPairsAreRefused() throws {
         let bad = [
-            "verdict = \"claude_declared\"\noutput = \"raw\"",
-            "verdict = \"grok_stop_reason\"\noutput = \"raw\"",
-            "verdict = \"exit_code_only\"\noutput = \"stream_json_result\"",
+            "verdict = \"declared_result\"\noutput = \"raw\"",
+            "verdict = \"stop_reason\"\noutput = \"raw\"",
+            "verdict = \"exit_code\"\noutput = \"stream_json_result\"",
             "task_delivery = \"stdin_raw\"\nargs = [\"exec\", \"{task}\"]",
             "output = \"json_field\"",   // json_field without output_field
         ]
@@ -171,7 +171,7 @@ struct CliDescriptorConfigTests {
         }
     }
 
-    @Test("a coherent claude_declared + stream_json_result generic row is accepted")
+    @Test("a coherent declared_result + stream_json_result generic row is accepted")
     func coherentPairIsAccepted() throws {
         try inTemporaryTree { global, _ in
             try write("""
@@ -179,11 +179,60 @@ struct CliDescriptorConfigTests {
             executable = "/opt/x/bin/x"
             kind = "generic"
             output = "stream_json_result"
-            verdict = "claude_declared"
+            verdict = "declared_result"
             """, to: global)
             let d = try #require(try Config.load(global: global, project: nil).cli["x"]?.descriptor)
-            #expect(d.verdict == .claudeDeclared)
+            #expect(d.verdict == .declaredResult)
             #expect(d.output == .streamJSONResult)
+        }
+    }
+
+    /// The `stop_reason` strategy is named for the SHAPE — "a field declaring why
+    /// generation stopped" — so the field's SPELLING has to be configurable. Welding
+    /// one agent's spelling into code would make every other agent's dispatch fail as
+    /// `cli.stop-reason.absent` while the vocabulary claimed to be generic. It selects
+    /// WHERE to read, never WHAT the reading means: the closed set of tokens and the
+    /// verdict they produce stay in reviewed Swift.
+    @Test("stop_reason_field selects which key the declaration is read from, defaulting to stopReason")
+    func stopReasonFieldIsConfigurable() throws {
+        try inTemporaryTree { global, _ in
+            try write("""
+            [cli.x]
+            executable = "/opt/x/bin/x"
+            kind = "generic"
+            output = "json_field"
+            output_field = "text"
+            verdict = "stop_reason"
+            """, to: global)
+            let d = try #require(try Config.load(global: global, project: nil).cli["x"]?.descriptor)
+            #expect(d.stopReasonField == "stopReason")
+        }
+        try inTemporaryTree { global, _ in
+            try write("""
+            [cli.x]
+            executable = "/opt/x/bin/x"
+            kind = "generic"
+            output = "json_field"
+            output_field = "text"
+            verdict = "stop_reason"
+            stop_reason_field = "finish_reason"
+            """, to: global)
+            let d = try #require(try Config.load(global: global, project: nil).cli["x"]?.descriptor)
+            #expect(d.stopReasonField == "finish_reason")
+
+            // and the driver really reads THAT key: an agent spelling it differently
+            // must not silently fail as a missing declaration.
+            let driver = ConfiguredDriver(name: "x", executable: URL(fileURLWithPath: "/opt/x/bin/x"),
+                                          descriptor: d)
+            let out = driver.parse(output: Data("{\"text\":\"a\",\"finish_reason\":\"EndTurn\"}".utf8),
+                                   exitStatus: 0)
+            #expect(out.state == .succeeded)
+            #expect(out.diagnostics.isEmpty)
+
+            let wrongKey = driver.parse(output: Data("{\"text\":\"a\",\"stopReason\":\"EndTurn\"}".utf8),
+                                        exitStatus: 0)
+            #expect(wrongKey.state == .failed)
+            #expect(wrongKey.diagnostics.contains("cli.stop-reason.absent"))
         }
     }
 
@@ -209,7 +258,7 @@ struct CliDescriptorConfigTests {
             executable = "/somewhere/claude"
             kind = "generic"
             output = "raw"
-            verdict = "exit_code_only"
+            verdict = "exit_code"
             """, to: global)
             #expect(throws: ConfigError.self) { try Config.load(global: global, project: nil) }
         }
@@ -243,7 +292,7 @@ struct CliDescriptorConfigTests {
             executable = "/opt/x/bin/x"
             kind = "generic"
             output = "raw"
-            verdict = "exit_code_only"
+            verdict = "exit_code"
 
             [cli.x.env]
             TOOL_TOKEN = "env:MY_TOOL_TOKEN"

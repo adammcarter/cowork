@@ -52,7 +52,7 @@ struct CodexOneShotDriverTests {
         // exit code 3, encoded as a raw wait status (exited normally, code in high byte).
         let outcome = driver.parse(output: Data("boom".utf8), exitStatus: 3 << 8)
         #expect(outcome.state == .failed)
-        #expect(outcome.diagnostics.contains("cli.codex.exit"))
+        #expect(outcome.diagnostics.contains("cli.exit"))
         #expect(outcome.diagnostics.contains("exit=3"))
     }
 

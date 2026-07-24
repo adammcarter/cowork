@@ -5,7 +5,7 @@ import Testing
 @testable import CoworkCore
 
 /// The payoff: codex became a full one-shot backend — reported by capabilities and
-/// assembled for dispatch — by adding a rule (`Verdict.codex`), a driver
+/// assembled for dispatch — by adding a rule (`Verdict.exitCode`), a driver
 /// (`CodexOneShotDriver`), and an agent plus one registry line. No edit to the
 /// engine (`CliRunner`, `InteractiveSession`, `LiveSession`, `Runner`,
 /// `SuperviseMode`, `ContainedProcess`) and none to `Capabilities`.

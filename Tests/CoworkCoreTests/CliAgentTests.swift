@@ -82,7 +82,7 @@ struct CliAgentTests {
     func genericIsOneShotOnly() throws {
         let agent = try #require(generic("opencode", CliDescriptor(
             taskDelivery: .argv, baseArguments: ["run", "{task}"],
-            output: .raw, verdict: .exitCodeOnly, deadlineDiagnostic: "cli.opencode.deadline")))
+            output: .raw, verdict: .exitCode, deadlineDiagnostic: "cli.opencode.deadline")))
         #expect(agent.isSessionCapable == false)
         #expect(agent.messageBlocker == ["cli.session-code-only"])
         #expect(throws: Error.self) { try agent.makeSession(DispatchContext()) }
@@ -94,14 +94,14 @@ struct CliAgentTests {
             taskDelivery: .argv, baseArguments: ["run", "{task}"],
             resumeArguments: ["--session", "{resume}"],
             output: .jsonField("result"), continuationField: "sessionID",
-            verdict: .grokStopReason, deadlineDiagnostic: "cli.opencode.deadline")))
+            verdict: .stopReason, deadlineDiagnostic: "cli.opencode.deadline")))
         #expect(wired.isFollowUpCapable == true, "both halves of the mechanism are wired")
         #expect(wired.provenanceDiagnostics.contains("cli.opencode.follow-up-configured-unverified"),
                 "cowork captures and passes a handle; nothing has proven the worker HONORS it")
 
         let unwired = try #require(generic("plaincli", CliDescriptor(
             taskDelivery: .argv, baseArguments: ["{task}"],
-            output: .raw, verdict: .exitCodeOnly, deadlineDiagnostic: "cli.plaincli.deadline")))
+            output: .raw, verdict: .exitCode, deadlineDiagnostic: "cli.plaincli.deadline")))
         #expect(unwired.isFollowUpCapable == false)
         #expect(unwired.followUpBlocker == ["cli.plaincli.follow-up-not-wired"])
     }
@@ -110,7 +110,7 @@ struct CliAgentTests {
     func genericExitVerdictIsMarkedUnverified() throws {
         let agent = try #require(generic("opencode", CliDescriptor(
             taskDelivery: .argv, baseArguments: ["run", "{task}"],
-            output: .raw, verdict: .exitCodeOnly, deadlineDiagnostic: "cli.opencode.deadline")))
+            output: .raw, verdict: .exitCode, deadlineDiagnostic: "cli.opencode.deadline")))
         #expect(agent.provenanceDiagnostics.contains("cli.opencode.verdict-unverified"),
                 "exit-code honesty depends on this CLI's failures really surfacing as a nonzero exit")
 

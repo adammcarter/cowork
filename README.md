@@ -59,7 +59,7 @@ task_delivery  = "argv"              # argv | stdin_raw | stdin_json_stream_user
 args           = ["run", "{task}"]
 workspace_args = ["--cwd", "{workspace}"]
 output         = "raw"               # raw | json_field | stream_json_result
-verdict        = "exit_code_only"    # a CLOSED set of tested outcome rules
+verdict        = "exit_code"    # a CLOSED set of tested outcome rules
 
 [cli.opencode.env]
 OPENCODE_MODEL = "ollama/qwen2.5-coder:7b"

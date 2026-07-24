@@ -227,7 +227,8 @@ public struct Config: Sendable {
     // load error (built-ins are sealed); `kind = "generic"` opts in to them.
     private static let genericFieldKeys = [
         "task_delivery", "args", "workspace_args", "resume_args", "output", "output_field",
-        "continuation_field", "verdict", "env", "isolate", "prepend_exe_dir_to_path",
+        "continuation_field", "verdict", "stop_reason_field", "env", "isolate",
+        "prepend_exe_dir_to_path",
         "deadline_diagnostic", "timeout_seconds", "cpu_seconds",
     ]
 
@@ -314,7 +315,7 @@ public struct Config: Sendable {
         default: throw ConfigError.malformed("cli '\(name)' has unknown output '\(outRaw)'")
         }
 
-        let verdictRaw = (table["verdict"] as? String) ?? "exit_code_only"
+        let verdictRaw = (table["verdict"] as? String) ?? "exit_code"
         guard let verdict = CliDescriptor.VerdictStrategy(rawValue: verdictRaw) else {
             throw ConfigError.malformed("cli '\(name)' has unknown verdict '\(verdictRaw)'")
         }
@@ -323,6 +324,7 @@ public struct Config: Sendable {
         let prependPath = (table["prepend_exe_dir_to_path"] as? Bool) ?? false
         let isolate = try parseIsolate(table["isolate"] as? [String: Any])
         let continuationField = table["continuation_field"] as? String
+        let stopReasonField = (table["stop_reason_field"] as? String) ?? "stopReason"
         let deadlineDiagnostic = (table["deadline_diagnostic"] as? String) ?? "cli.\(name).deadline"
         let timeout = (table["timeout_seconds"] as? Int) ?? 1800
         let cpu = (table["cpu_seconds"] as? Int) ?? 1800
@@ -334,7 +336,8 @@ public struct Config: Sendable {
             taskDelivery: taskDelivery, baseArguments: args,
             workspaceArguments: workspaceArgs, resumeArguments: resumeArgs,
             env: env, prependExeDirToPath: prependPath, output: output,
-            continuationField: continuationField, verdict: verdict, isolate: isolate,
+            continuationField: continuationField, verdict: verdict,
+            stopReasonField: stopReasonField, isolate: isolate,
             deadlineDiagnostic: deadlineDiagnostic, timeoutSeconds: timeout, cpuSeconds: cpu)
     }
 
@@ -350,16 +353,16 @@ public struct Config: Sendable {
             throw ConfigError.malformed("cli '\(name)': {task} in args requires task_delivery='argv'")
         }
         switch verdict {
-        case .claudeDeclared where output != .streamJSONResult:
-            throw ConfigError.malformed("cli '\(name)': verdict='claude_declared' requires output='stream_json_result'")
-        case .grokStopReason:
+        case .declaredResult where output != .streamJSONResult:
+            throw ConfigError.malformed("cli '\(name)': verdict='declared_result' requires output='stream_json_result'")
+        case .stopReason:
             if case .jsonField = output {} else {
-                throw ConfigError.malformed("cli '\(name)': verdict='grok_stop_reason' requires output='json_field'")
+                throw ConfigError.malformed("cli '\(name)': verdict='stop_reason' requires output='json_field'")
             }
-        case .exitCodeOnly where output != .raw:
+        case .exitCode where output != .raw:
             // A CLI that emits a declaration cowork can read may not be judged by exit
             // code alone — that is precisely selecting a strategy that ignores it.
-            throw ConfigError.malformed("cli '\(name)': verdict='exit_code_only' requires output='raw' (a declaring CLI needs a declaration-reading verdict)")
+            throw ConfigError.malformed("cli '\(name)': verdict='exit_code' requires output='raw' (a declaring CLI needs a declaration-reading verdict)")
         default: break
         }
 //: @use-case:end cli.generic.incoherent_descriptor_is_refused_at_load#verdict_output_coherence

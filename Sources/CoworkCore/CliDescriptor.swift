@@ -15,8 +15,8 @@ public struct CliDescriptor: Sendable, Equatable {
     /// Where the prompt is delivered to the process.
     public enum TaskDelivery: Sendable, Equatable {
         case argv                  // {task} substituted into args
-        case stdinRaw              // raw task bytes on stdin (codex shape)
-        case stdinJSONStreamUser   // claude's exact stream-json user-message envelope
+        case stdinRaw              // raw task bytes on stdin
+        case stdinJSONStreamUser   // one stream-json user-message envelope on stdin
 
         init?(configValue: String) {
             switch configValue {
@@ -34,15 +34,18 @@ public struct CliDescriptor: Sendable, Equatable {
     public enum OutputMode: Sendable, Equatable {
         case raw                    // the whole stdout is the answer
         case jsonField(String)      // last well-formed JSON object; `field` holds the answer
-        case streamJSONResult       // claude's stream-json events; the `result` object
+        case streamJSONResult       // a stream of JSON events; the final `result` object
     }
 
     /// A fixed set of tested truthful-outcome rules the descriptor may pick from.
     /// Each maps to an existing `Verdict.*` function VERBATIM (ADR 000).
+    /// Named for the DECLARATION SHAPE each rule reads, never for the agent that
+    /// happens to emit it — two CLIs that declare the same way select the same
+    /// strategy and become comparable.
     public enum VerdictStrategy: String, Sendable, Equatable {
-        case exitCodeOnly = "exit_code_only"    // exit 0 ⇒ succeeded; honest only when no declaration is emitted
-        case claudeDeclared = "claude_declared" // Verdict.cli(declaredSubtype:isError:exitCode:)
-        case grokStopReason = "grok_stop_reason" // Verdict.grok(stopReason:exitCode:)
+        case exitCode = "exit_code"             // Verdict.exitCode(_:) — honest only when nothing is declared
+        case declaredResult = "declared_result" // Verdict.declaredResult(declaredSubtype:isError:exitCode:)
+        case stopReason = "stop_reason"         // Verdict.stopReason(_:exitCode:)
     }
 
     /// One environment entry. A value is either a literal (non-secret) or an
@@ -76,6 +79,13 @@ public struct CliDescriptor: Sendable, Equatable {
     public let output: OutputMode
     public let continuationField: String?        // JSON key of the resume handle; nil ⇒ no follow-up
     public let verdict: VerdictStrategy
+    /// JSON key the `stopReason` strategy reads its declaration from. Configurable
+    /// because the strategy is named for the SHAPE — "a field declaring why
+    /// generation stopped" — and agents spell that field differently
+    /// (`stopReason`, `stop_reason`, `finish_reason`). Welding one spelling into
+    /// code would make every other agent's dispatch fail as `stop-reason.absent`.
+    /// It selects WHERE to read, never WHAT the reading means.
+    public let stopReasonField: String
     public let isolate: Isolation?
     public let deadlineDiagnostic: String
     public let timeoutSeconds: Int
@@ -90,6 +100,7 @@ public struct CliDescriptor: Sendable, Equatable {
                 output: OutputMode,
                 continuationField: String? = nil,
                 verdict: VerdictStrategy,
+                stopReasonField: String = "stopReason",
                 isolate: Isolation? = nil,
                 deadlineDiagnostic: String,
                 timeoutSeconds: Int = 1800,
@@ -103,6 +114,7 @@ public struct CliDescriptor: Sendable, Equatable {
         self.output = output
         self.continuationField = continuationField
         self.verdict = verdict
+        self.stopReasonField = stopReasonField
         self.isolate = isolate
         self.deadlineDiagnostic = deadlineDiagnostic
         self.timeoutSeconds = timeoutSeconds
