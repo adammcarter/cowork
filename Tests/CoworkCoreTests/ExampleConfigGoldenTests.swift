@@ -163,5 +163,11 @@ struct ExampleConfigGoldenTests {
         #expect(isolate.seed?.lastPathComponent == "auth.json")
         #expect(try ExampleConfig.descriptor("claude").isolate == nil,
                 "no row gets isolation it did not ask for")
+
+        // The other half of the same knob: isolation without a seed keeps the user's
+        // real config OUT of the worker, rather than carrying a credential in.
+        let seedless = try #require(try ExampleConfig.descriptor("opencode").isolate)
+        #expect(seedless.variable == "XDG_CONFIG_HOME")
+        #expect(seedless.seed == nil)
     }
 }

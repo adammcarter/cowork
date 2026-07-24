@@ -91,6 +91,10 @@ verdict = "exit_code"
 # Shape 4: one-shot only. No [session] block, so `supports_message` is false and
 # `send` is refused with `cli.session-code-only` — never silently degraded into
 # a fresh one-shot that would remember nothing.
+#
+# This is also the row that answers the small-local-model problem: an agent
+# harness in front of the model owns the context and compaction, and cowork goes
+# back to being a messenger. Nothing here knows a model is involved.
 # ---------------------------------------------------------------------------
 [cli.opencode]
 executable = "/opt/homebrew/bin/opencode"
@@ -98,3 +102,16 @@ args = ["run", "{task}"]
 task_delivery = "argv"
 output = "raw"
 verdict = "exit_code"
+
+  # No `workspace_args`: the worker is already spawned with the dispatch workspace
+  # as its working directory, so a CLI that reads cwd needs no flag. Only an agent
+  # that insists on being told (see grok's `--cwd`) declares one.
+
+  [cli.opencode.env]
+  OPENCODE_MODEL = "ollama/qwen2.5-coder:7b"
+
+  # Isolation with no `seed`: a fresh empty 0700 config dir per dispatch, removed
+  # on every exit path. The point here is the opposite of codex's — not to carry a
+  # credential in, but to keep the user's real settings out of a worker's reach.
+  [cli.opencode.isolate]
+  var = "XDG_CONFIG_HOME"

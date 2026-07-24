@@ -50,8 +50,11 @@ base_url   = "https://api.z.ai/api/coding/paas/v4"
 chat_path  = "chat/completions"        # the layout is configuration, not contract
 credential = "env:ZAI_API_KEY"
 
+# A CLI backend is a row too, but a fuller one — it describes the agent's whole
+# wire. See ADR 007 and examples/config.toml.
 [cli.claude]
 executable = "~/.local/bin/claude"
+args       = ["-p", "--output-format", "stream-json", "…"]
 
 [profile.local-only]  providers = ["omlx", "ollama"]
 [profile.work]        providers = ["zai", "nvidia", "omlx", "claude"]

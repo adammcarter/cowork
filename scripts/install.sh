@@ -21,7 +21,8 @@
 #   ├── bin/cowork
 #   ├── roles/*.role                (shipped ∪ yours — merged, never clobbered)
 #   ├── skills/…
-#   └── commands/…
+#   ├── commands/…
+#   └── examples/config.toml       (a worked sample — never $PREFIX/config.toml)
 #
 # Skills are then LINKED into each host's skill discovery directory
 # (~/.claude/skills, ~/.codex/skills, ~/.copilot/skills) as cowork-<name>
@@ -76,6 +77,7 @@ elif [ "$SRC" = "local" ]; then
   cp -R "$REPO/roles" "$SRC/roles"
   cp -R "$REPO/skills" "$SRC/skills"
   [ -d "$REPO/commands" ] && cp -R "$REPO/commands" "$SRC/commands"
+  [ -d "$REPO/examples" ] && cp -R "$REPO/examples" "$SRC/examples" || true
   trap 'rm -rf "$SRC"' EXIT   # staged copy is throwaway
 elif [ -x "$SCRIPT_DIR/bin/cowork" ]; then
   SRC="$SCRIPT_DIR"                        # unpacked release tarball: install.sh sits next to bin/
@@ -99,6 +101,10 @@ mkdir -p "$PREFIX/roles"
 cp "$SRC/roles/"*.role "$PREFIX/roles/"
 [ -d "$SRC/skills" ]   && { rm -rf "$PREFIX/skills";   cp -R "$SRC/skills"   "$PREFIX/skills"; }
 [ -d "$SRC/commands" ] && { rm -rf "$PREFIX/commands"; cp -R "$SRC/commands" "$PREFIX/commands"; }
+# The example config lands beside the user's real one, never on top of it: cowork
+# ships no built-in agents, so this file is the only worked reference for wiring
+# a CLI — but it is a sample, and $PREFIX/config.toml is the user's own state.
+[ -d "$SRC/examples" ] && { rm -rf "$PREFIX/examples"; cp -R "$SRC/examples" "$PREFIX/examples"; } || true
 
 # --- 2b. link skills into each host's discovery directory ----------------------
 # One canonical source (the installed $PREFIX/skills) linked as cowork-<name>
@@ -244,6 +250,10 @@ Verify a host picked it up:
   claude mcp list        | grep cowork      # → cowork: ... ✔ Connected
   codex mcp list         | grep cowork
   opencode mcp list      | grep cowork
+
+cowork ships no built-in agents: every backend is a row in ~/.cowork/config.toml.
+Copy the rows for the agents you have from $PREFIX/examples/config.toml and fix
+the paths, then check what cowork can reach with the \`capabilities\` tool.
 
 Shipped roles live at ~/.cowork/roles — add your own .role files right there
 (reinstalls merge, never clobber) or per-project in <project>/.cowork/roles.

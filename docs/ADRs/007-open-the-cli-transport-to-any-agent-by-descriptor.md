@@ -44,11 +44,20 @@ with arbitrary arguments and environment**, and the outcome rule
 itself. A careless schema could let configuration make a worker's failure look like
 a success, or let a cloned repository run a binary of its choosing.
 
+The first cut of this decision kept the three named agents as *sealed built-in
+descriptors* and left live sessions bound to them in code. That half-measure did
+not survive contact. It meant cowork still carried three vendor names, still
+decided which agents were first-class, and still needed a release when one of them
+changed a flag. Worse, a name in cowork's code is a claim cowork cannot keep: it
+recognises an agent by a string the *user* chose, and a recognised name licensed
+behaviour the user never asked for — an implicit copy of their credentials. So the
+built-ins went too, and clauses 3 and 6 below are the corrected versions.
+
 ## Decision
 
 The CLI transport is opened to **any** agent, wired from configuration by a
-declarative **descriptor**. Both backend kinds remain; the *kind* is the user's
-choice, and neither is deprecated by the other.
+declarative **descriptor**. Cowork ships **no** agents. Both backend kinds remain;
+the *kind* is the user's choice, and neither is deprecated by the other.
 
 ```text
                           cowork dispatch
@@ -62,68 +71,85 @@ choice, and neither is deprecated by the other.
             │                                          │
    fork = a DESCRIPTOR, from config           fork = HTTP dialect only
             │
-   ├ built-in  claude / grok / codex  → sealed descriptor constants
-   └ generic   kind = "generic"       → the descriptor the user wrote
-                                        (any CLI: an agent harness
-                                         wrapping a local model, a
-                                         house tool, a shim)
+   every [cli.<name>] row, all equal: an agent
+   harness wrapping a local model, a vendor CLI,
+   a house tool, a shim — cowork cannot tell
+   them apart, so it cannot favour one
 ```
 
 1. **A CLI's wire is a descriptor, not a driver.** One `ConfiguredDriver`
    interprets a `CliDescriptor`: where the task goes (argv / raw stdin / a
    stream-json user envelope), the argument template with optional `{task}`,
    `{workspace}` and `{resume}` segments, the environment, how to extract the
-   answer, and which outcome rule applies. The three built-ins become sealed
-   descriptor constants; the hand-written drivers are gone.
+   answer, and which outcome rule applies. There are no hand-written drivers and no
+   descriptor constants — a row in `~/.cowork/config.toml` is the only place a wire
+   exists.
 
 2. **Configuration SELECTS an outcome rule; it never AUTHORS one.** `verdict` picks
-   one of a closed set of named, tested `Verdict.*` functions. There is deliberately
-   no "success when field X equals Y" knob — that would let a config report a
-   truncation as success, the exact lie
+   one of a closed set of named, tested `Verdict.*` functions, each named for the
+   *declaration shape* it reads: `exit_code`, `declared_result`, `stop_reason`.
+   There is deliberately no "success when field X equals Y" knob — that would let a
+   config report a truncation as success, the exact lie
    [ADR 000](000-define-cowork-purpose-as-truthful-dispatch.md) exists to prevent.
    A genuinely new declaration shape requires a new tested rule in reviewed code.
    **Adding a strategy is code; choosing one is config.**
 
-3. **A strategy may not ignore a declaration cowork can see.** Judging by exit code
-   alone is honest only for a worker that declares nothing else, so a generic row
-   may select it only with raw output; the incoherent pairings are refused at load
-   rather than left to fail silently at dispatch.
+3. **Nothing in cowork is named after an agent.** Verdicts, session wires and
+   diagnostics are named by shape or protocol, never by vendor, and no diagnostic
+   interpolates a row's name — *which* CLI ran already lives in the dispatch
+   record's backend id, so repeating it there would only make two agents speaking
+   the same protocol look incomparable. This is not tidiness. A name in code is a
+   recognition, and a recognition licenses behaviour: the concrete case was the MCP
+   session copying the user's auth file into a throwaway home *because it recognised
+   the agent*. That copy now exists only where a user wrote
+   `[cli.<n>.isolate] seed = …`. **Cowork never copies a credential on its own
+   initiative.**
 
-4. **A generic descriptor is global-origin only.** A project's config may *select* a
-   built-in but may not define a generic CLI — the same reasoning that refuses a
-   project-named credential in
+4. **A CLI row is global-origin only.** A project's config may *dispatch* any
+   globally-declared CLI by name, but may not declare one at all — the same
+   reasoning that refuses a project-named credential in
    [ADR 005](005-configure-providers-globally-and-compose-them-with-profiles.md),
    applied to a strictly larger risk: a cloned repository must not be able to choose
-   which binary runs on the user's machine.
+   which binary runs on the user's machine. With no built-ins left there is no
+   weaker "select a sealed dialect" row a project could safely be allowed, so the
+   whole table kind is refused, with `config.project-cli-refused` naming the fix.
 
 5. **Configuration may move bytes, never author execution-sensitive state.** A CLI's
    environment may not set `PATH`, `HOME`, `USER`, `LANG`, `COWORK_*`, `DYLD_*` or
-   `LD_*`, and a value may be an `env:NAME` reference so a config file holds a
-   pointer and never a secret. Substitution is whole-argument and no shell is
+   `LD_*` — and neither may an isolation `var`, which reaches the same environment
+   through a different door. A value may be an `env:NAME` reference so a config file
+   holds a pointer and never a secret. Substitution is whole-argument and no shell is
    involved, so a task value cannot inject an argument or a command.
 
-6. **Live sessions stay code-backed; capability stays derived.** A session speaks a
-   bespoke stateful protocol (stream-json, ACP, MCP) that a descriptor cannot
-   express, and one adapter carries a copy of the user's credentials — so an adapter
-   is bound to its built-in and cannot be named from config. A generic CLI is
-   therefore truthfully one-shot: `supports_message` is the *presence of the
-   operation*, so it cannot be forged, and an interactive dispatch is refused rather
-   than silently run one-shot ([ADR 006](006-model-workers-by-transport-not-by-location.md)).
+6. **A live session is a wire the row NAMES, not a privilege cowork grants.** Three
+   stateful protocols ship as protocol clients — `stream_json`, `acp`, `mcp` — and a
+   `[cli.<n>.session]` block selects one and supplies the argv that launches it. The
+   one genuinely agent-specific value, the MCP tool-name pair, is a config value.
+   Capability remains the *presence of the operation*: a row with no `[session]`
+   block has no session to open, so `supports_message` is false and an interactive
+   dispatch is refused with `cli.session-code-only` rather than silently run
+   one-shot ([ADR 006](006-model-workers-by-transport-not-by-location.md)). What a
+   config row can now assert, it must also carry a marker for — see clause 7.
 
 7. **Asserted is reported distinctly from proven.** Configuration states intent;
-   only a performed run proves behaviour. A config-wired capability is advertised
-   *with* a marker naming it unverified — follow-up that is wired but not yet shown
-   to be honoured, an exit-code verdict not yet shown to surface real failures.
-   Built-ins, verified against the real CLIs, carry no such marker. The difference
-   is reported rather than papered over, which is
-   [ADR 000](000-define-cowork-purpose-as-truthful-dispatch.md) applied to
-   capabilities.
+   only a performed run proves behaviour. Every config-asserted capability is
+   advertised *with* a marker naming it unverified: `cli.follow-up-unverified` for
+   follow-up that is wired but not yet shown to be honoured,
+   `cli.session-unverified` for a session wire the binary is merely claimed to
+   speak, `cli.verdict-unverified` for an exit-code verdict not yet shown to surface
+   real failures. Every row is config-authored now, so these markers are
+   unconditional — there is no privileged provenance left to exempt, and exempting
+   one anyway would be the papering-over
+   [ADR 000](000-define-cowork-purpose-as-truthful-dispatch.md) forbids. A performed
+   journey is what clears them.
 
 ## Consequences
 
 - **Adding a CLI agent is now configuration, not a cowork release.** The parity
   [ADR 006](006-model-workers-by-transport-not-by-location.md) gave model hosts
-  ("a new host is a config line") now holds for CLI agents too.
+  ("a new host is a config line") now holds for CLI agents too — and so does the
+  converse: when an agent changes a flag or a JSON key, the fix is a line in the
+  user's own config rather than a wait for cowork to ship.
 - **Small local models have an honest answer.** Point an existing headless harness
   at the model and register it as a CLI backend: the harness owns the context and
   compaction, cowork stays a messenger. Cowork builds no context manager, and the
@@ -136,10 +162,29 @@ choice, and neither is deprecated by the other.
   origin gate, the protected-key denylist, the closed verdict set, the coherence
   rules and whole-argument substitution are load-time refusals; a mistake is a
   config error the user can read, not a silent misbehaviour at dispatch.
-- **The built-ins are sealed.** A built-in row carrying descriptor fields, or a
-  generic row pointing at a built-in's executable name, is refused — so opening the
-  door cannot be used to re-author a dialect that was verified against the real CLI.
+- **A fresh install dispatches to nothing until the user says otherwise.** That is
+  the price of shipping no agents, and it is the right default: cowork will not
+  launch a binary because it guessed a name. `examples/config.toml` carries a
+  complete worked row for each supported shape, the installer places it at
+  `~/.cowork/examples/config.toml`, and cowork's wire tests are pinned against that
+  file — so the sample users are told to copy is provably the sample the parser
+  accepts.
+- **The observable vocabulary changed, and that is a break.** Diagnostics that
+  carried an agent's name (`cli.claude.exit`, `cli.grok.truncated`,
+  `cli.codex-mcp.rpc-error`) are now shape-named (`cli.exit`,
+  `cli.stop-reason.truncated`, `cli.mcp.rpc-error`); the `verdict` wire values were
+  renamed to their shapes; `kind` and `deadline_diagnostic` no longer exist, and a
+  leftover `kind` is a load error rather than a silently-ignored key — ignoring it
+  would launch an interactive agent with no arguments and report the ensuing hang
+  as a timeout. Accepted deliberately, pre-v1: a comparable vocabulary is worth more
+  than compatibility with three names that were never going to stay.
+- **Two second opinions were lost with the built-ins.** `cli.kind-mismatch` compared
+  a declared `kind` against a sniffed executable, and `cli.driver-unknown` reported
+  a row whose dialect did not resolve. Neither has a subject any more: there is no
+  label left to mislabel, and every row carries a descriptor by construction — so
+  what was a probe-time diagnostic is now a load-time refusal, which is stronger and
+  is named.
 - **One interpreter is now load-bearing for every CLI dispatch.** That concentration
   is the point (one place to reason about argv, environment and outcome), and it is
-  why the built-ins' wire is pinned by tests that were first proven against the
-  hand-written drivers they replaced.
+  why the shipped example rows' wires are pinned by tests that were first proven
+  against the hand-written drivers they replaced.

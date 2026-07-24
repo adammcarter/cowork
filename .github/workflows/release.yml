@@ -98,6 +98,10 @@ jobs:
           cp -R skills "$STAGE/skills"
           [ -d commands ] && cp -R commands "$STAGE/commands" || true
           [ -d docs ] && cp -R docs "$STAGE/docs" || true
+          # Cowork ships no built-in agents, so the example config is the only place a
+          # user can see a working wire. Leaving it out of the tarball would ship a
+          # binary that can dispatch to nothing until they find the repo.
+          [ -d examples ] && cp -R examples "$STAGE/examples" || true
           cp scripts/install.sh "$STAGE/install.sh"
           cp LICENSE "$STAGE/LICENSE" 2>/dev/null || true
           chmod +x "$STAGE/install.sh" "$STAGE/bin/cowork"

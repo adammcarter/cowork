@@ -68,8 +68,8 @@ the **dialect** it speaks over that transport. Nothing else forks the code.
    > **Amended by [ADR 007](007-open-the-cli-transport-to-any-agent-by-descriptor.md).**
    > The fork is still the dialect, but a dialect is now a *descriptor* read from
    > configuration rather than a hand-written adapter, so adding a CLI agent is a
-   > config block rather than a cowork release. The three named dialects here remain
-   > as sealed built-in descriptors.
+   > config block rather than a cowork release. The three named dialects here are
+   > no longer in cowork at all: they are example rows a user copies.
 
 4. **Within endpoint, the only variation is the HTTP dialect.**
    `openai_compatible` (the `/v1/chat/completions` shape) is the implemented
@@ -85,17 +85,18 @@ the **dialect** it speaks over that transport. Nothing else forks the code.
    worker that cannot be messaged says so rather than pretend. (Under
    [ADR 007](007-open-the-cli-transport-to-any-agent-by-descriptor.md) that fact is
    the presence of a session operation on the resolved backend, rather than a
-   compile-time protocol conformance — a config-wired CLI is truthfully one-shot.)
+   compile-time protocol conformance — a row that declares no session wire is
+   truthfully one-shot.)
 
 ## Consequences
 
 - **Adding a model host is configuration, not code** — a `[provider.*]` block, the
   same for a laptop's ollama and a hosted API. Local/remote parity is free.
-- **Adding a CLI agent is one thin driver** — Grok joined this way (a `CliRunner`
-  with the Grok driver, `kind = "grok"`), reusing the shared `ContainedProcess`
-  containment and only
-  supplying its own dialect. Codex is built the same way — a thin driver reusing
-  the shared containment.
+- **Adding a CLI agent is one thin driver** — a `CliRunner` supplying only its own
+  dialect, reusing the shared `ContainedProcess` containment. (Superseded by
+  [ADR 007](007-open-the-cli-transport-to-any-agent-by-descriptor.md): the driver
+  is now one interpreter over a descriptor, so adding an agent is a config block
+  and no longer touches cowork at all.)
 - **Interactivity is discovered, never assumed.** A worker that cannot be messaged
   is refused for an interactive dispatch rather than silently run one-shot, and
   `capabilities.supports_message` names the reason.
