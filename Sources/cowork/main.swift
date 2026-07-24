@@ -59,18 +59,19 @@ if let superviseID {
         resolve: { resolveBackend($0) })
 }
 
-// A provider's `credential = "env:NAME"` names a variable in THIS process's
-// environment. The supervisor is a fresh process with a fresh environment, so it
-// cannot resolve that name unless the value travels with it — without this, a user
-// who exports their key exactly as the config says gets a failed dispatch.
+// An `env:NAME` reference — a provider's `credential`, or a generic CLI's
+// `[cli.*.env]` value — names a variable in THIS process's environment. The
+// supervisor is a fresh process with a fresh environment, so it cannot resolve that
+// name unless the value travels with it: without this, a user who exports their key
+// exactly as the config says gets a failed dispatch, or (for a CLI descriptor) a
+// silently empty variable in the worker.
 //
 // Only the names the config actually references are forwarded, and only if set:
 // the supervisor's environment stays an allowlist rather than an inheritance.
-let credentialEnvironment: [String: String] = config.providers.values.reduce(into: [:]) { out, p in
-    guard let ref = p.credential, ref.hasPrefix("env:") else { return }
-    let name = String(ref.dropFirst(4))
-    if let value = ProcessInfo.processInfo.environment[name] { out[name] = value }
-}
+let credentialEnvironment: [String: String] = config.referencedEnvironmentNames
+    .reduce(into: [:]) { out, name in
+        if let value = ProcessInfo.processInfo.environment[name] { out[name] = value }
+    }
 
 let dispatcher = Dispatcher(executable: URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath(),
                             supervisorEnvironment: credentialEnvironment)

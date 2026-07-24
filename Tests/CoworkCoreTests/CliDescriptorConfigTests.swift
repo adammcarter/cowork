@@ -227,4 +227,36 @@ struct CliDescriptorConfigTests {
             #expect(config.cli["grok"]?.descriptor == nil)
         }
     }
+
+    // A CLI descriptor's env:NAME must survive the hop into the supervisor process.
+    // Without this the reference resolves to empty in the worker, and the user who
+    // exported their variable exactly as the config says gets a silently unset var.
+    @Test("a generic CLI's env:NAME reference is named in the environment the supervisor needs")
+    func genericEnvReferenceIsForwarded() throws {
+        try inTemporaryTree { global, _ in
+            try write("""
+            [provider.omlx]
+            base_url = "http://x"
+            credential = "env:OMLX_KEY"
+
+            [cli.x]
+            executable = "/opt/x/bin/x"
+            kind = "generic"
+            output = "raw"
+            verdict = "exit_code_only"
+
+            [cli.x.env]
+            TOOL_TOKEN = "env:MY_TOOL_TOKEN"
+            PLAIN = "not-a-reference"
+            """, to: global)
+
+            let config = try Config.load(global: global, project: nil)
+            let names = config.referencedEnvironmentNames
+            #expect(names.contains("OMLX_KEY"), "a provider credential reference is still forwarded")
+            #expect(names.contains("MY_TOOL_TOKEN"),
+                    "a CLI descriptor's env:NAME must be forwarded too, or it resolves to empty")
+            #expect(!names.contains("PLAIN"), "a literal is not an environment reference")
+            #expect(!names.contains("not-a-reference"))
+        }
+    }
 }

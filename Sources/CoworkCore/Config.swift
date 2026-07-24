@@ -143,6 +143,29 @@ public struct Config: Sendable {
         return Config(providers: providers, cli: cli, visible: visible)
     }
 
+    /// Every environment variable NAME this config references — a provider's
+    /// `credential = "env:NAME"` and a CLI descriptor's `env:NAME` value alike.
+    ///
+    /// The supervisor is a fresh process with an allowlist environment, so a name the
+    /// config references is unresolvable there unless it travels with it. Collecting
+    /// providers only was a real hole: a `[cli.*.env]` reference resolved to EMPTY in
+    /// the worker, so a user who exported their variable exactly as the config said
+    /// got a silently unset value — the kind of quiet wrongness ADR 000 exists to
+    /// prevent. Names only; the values are read from the live environment by the
+    /// caller, and a name that is not set is simply not forwarded.
+    public var referencedEnvironmentNames: Set<String> {
+        var names = Set<String>()
+        for provider in providers.values {
+            if let ref = provider.credential, ref.hasPrefix("env:") {
+                names.insert(String(ref.dropFirst(4)))
+            }
+        }
+        for entry in cli.values.compactMap(\.descriptor).flatMap(\.env) {
+            if case let .reference(name) = entry.value { names.insert(name) }
+        }
+        return names
+    }
+
     /// Profiles compose by union; an unselected provider is masked. A profile
     /// masks the *user's* providers and never the project's own, which the project
     /// declared deliberately — otherwise the two features fight.
@@ -166,6 +189,7 @@ public struct Config: Sendable {
         }
         return providers.filter { allowed.contains($0.key) || $0.value.origin == .project }
     }
+//: @use-case:end config.profiles_mask_hosted_providers#profiles_mask_hosted_pro
 
 //: @use-case:config.credential_reference_must_be_env
     private static func provider(name: String, table: [String: Any],
@@ -190,6 +214,7 @@ public struct Config: Sendable {
             credential: credential,
             origin: origin)
     }
+//: @use-case:end config.credential_reference_must_be_env
 
     private static func string(_ table: [String: Any], _ key: String, _ owner: String) throws -> String {
         guard let v = table[key] as? String else {
@@ -218,12 +243,15 @@ public struct Config: Sendable {
         let kindRaw = table["kind"] as? String
         let hasGenericField = genericFieldKeys.contains { table[$0] != nil }
 
+//: @use-case:cli.generic.project_config_may_not_wire_a_generic_cli#origin_gate
         if kindRaw == "generic" {
             // ORIGIN GATE: a generic descriptor authors argv+env for an arbitrary
             // binary — strictly worse than the project-credential attack ADR 005
             // already refuses. A project may only SELECT a built-in.
             guard origin == .global else { throw ConfigError.projectGenericCli(name) }
             // A generic row may not point at a built-in executable name: that would
+//: @use-case:end cli.generic.project_config_may_not_wire_a_generic_cli#origin_gate
+//: @use-case:cli.generic.builtin_wire_is_sealed_from_config#builtin_sealed
             // let config re-author a sealed dialect's wire.
             guard case .unknown = CliDialect(executable: executable) else {
                 throw ConfigError.builtinImmutable(cli: name)
@@ -237,6 +265,7 @@ public struct Config: Sendable {
         // Built-in row: sealed. Any descriptor field is a load error.
         guard !hasGenericField else { throw ConfigError.builtinImmutable(cli: name) }
         return CliConfig(name: name, executable: executable,
+//: @use-case:end cli.generic.builtin_wire_is_sealed_from_config#builtin_sealed
                          kind: try cliDialect(table, name, executable: executable),
                          descriptor: nil, origin: origin)
     }
@@ -312,6 +341,7 @@ public struct Config: Sendable {
     /// Reject the statically-detectable half of the ADR-000 "select a strategy that
     /// ignores the worker's declaration" hole, plus any pairing that would emit no
     /// signal and silently read as a permanent failure.
+//: @use-case:cli.generic.incoherent_descriptor_is_refused_at_load#verdict_output_coherence
     private static func validateCoherence(name: String,
                                           taskDelivery: CliDescriptor.TaskDelivery,
                                           args: [String], output: CliDescriptor.OutputMode,
@@ -332,8 +362,10 @@ public struct Config: Sendable {
             throw ConfigError.malformed("cli '\(name)': verdict='exit_code_only' requires output='raw' (a declaring CLI needs a declaration-reading verdict)")
         default: break
         }
+//: @use-case:end cli.generic.incoherent_descriptor_is_refused_at_load#verdict_output_coherence
     }
 
+//: @use-case:cli.generic.execution_sensitive_env_keys_are_refused#protected_env
     private static func parseEnv(name: String, _ dict: [String: Any]) throws -> [CliDescriptor.EnvEntry] {
         var entries: [CliDescriptor.EnvEntry] = []
         for key in dict.keys.sorted() {
@@ -350,6 +382,7 @@ public struct Config: Sendable {
             }
         }
         return entries
+//: @use-case:end cli.generic.execution_sensitive_env_keys_are_refused#protected_env
     }
 
     private static func parseIsolate(_ dict: [String: Any]?) throws -> CliDescriptor.Isolation? {
