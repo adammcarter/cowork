@@ -41,4 +41,53 @@ public protocol OneShotDriver: Sendable {
     /// The leading diagnostic when the dispatch is killed for exceeding its
     /// deadline. `CliRunner` adds `timeout=Ns` beside it.
     var deadlineDiagnostic: String { get }
+
+    /// A per-dispatch isolation directory this driver wants, if any. `CliRunner` owns
+    /// the lifecycle: it adds the handle's environment entry to the invocation and
+    /// removes the directory on EVERY exit path, so a seed dir that may hold secrets
+    /// never survives a completed, timed-out or failed dispatch.
+    func prepareIsolation() -> IsolationHandle?
+}
+
+public extension OneShotDriver {
+    func prepareIsolation() -> IsolationHandle? { nil }
+}
+
+/// A fresh 0700 directory pointed at by one environment variable, owned by the
+/// runner for exactly one dispatch. Generalises codex's throwaway CODEX_HOME.
+public struct IsolationHandle: Sendable {
+    public let directory: URL
+    public let environmentEntry: String
+
+    public init(directory: URL, environmentEntry: String) {
+        self.directory = directory
+        self.environmentEntry = environmentEntry
+    }
+
+    /// Create the directory (0700), optionally seeding it by copying `seed` in.
+    /// Returns nil when the directory cannot be created — the dispatch then runs
+    /// unisolated rather than failing, and that is visible because the variable is
+    /// simply absent.
+    public static func make(variable: String, seed: URL?) -> IsolationHandle? {
+        let fm = FileManager.default
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cowork-cli-isolate-\(UUID().uuidString)")
+        guard (try? fm.createDirectory(at: dir, withIntermediateDirectories: true,
+                                       attributes: [.posixPermissions: 0o700])) != nil else { return nil }
+        if let seed, fm.fileExists(atPath: seed.path) {
+            // Copy the seed's CONTENTS so the variable points at a directory shaped
+            // like the original, not at a directory containing it.
+            if let entries = try? fm.contentsOfDirectory(atPath: seed.path) {
+                for entry in entries {
+                    try? fm.copyItem(at: seed.appendingPathComponent(entry),
+                                     to: dir.appendingPathComponent(entry))
+                }
+            }
+        }
+        return IsolationHandle(directory: dir, environmentEntry: "\(variable)=\(dir.path)")
+    }
+
+    public func remove() {
+        try? FileManager.default.removeItem(at: directory)
+    }
 }

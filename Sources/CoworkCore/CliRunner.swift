@@ -53,7 +53,16 @@ public struct CliRunner: Sendable {
 
     public func run(task: String, workspace: Workspace?) -> CliOutcome {
         let invocation = driver.invocation(task: task, workspace: workspace, resume: resume)
-        let environment = Self.environment(extra: invocation.extraEnvironment)
+
+        // The isolation dir is the runner's to own for exactly this dispatch. `defer`
+        // is what makes it leak-proof: it runs on the timeout short-circuit and the
+        // normal return alike, so a seed dir that may hold secrets never outlives the
+        // worker it was made for.
+        let isolation = driver.prepareIsolation()
+        defer { isolation?.remove() }
+
+        let environment = Self.environment(
+            extra: invocation.extraEnvironment + (isolation.map { [$0.environmentEntry] } ?? []))
 
         let result = spawn.run(executable: executable, arguments: invocation.arguments,
                                environment: environment, stdin: invocation.stdin,

@@ -23,6 +23,11 @@ public struct ConfiguredDriver: OneShotDriver {
 
     public var deadlineDiagnostic: String { descriptor.deadlineDiagnostic }
 
+    public func prepareIsolation() -> IsolationHandle? {
+        guard let isolate = descriptor.isolate else { return nil }
+        return IsolationHandle.make(variable: isolate.variable, seed: isolate.seed)
+    }
+
     public func invocation(task: String, workspace: Workspace?, resume: String?) -> Invocation {
         let ws = workspace?.root.path
         var arguments = substitute(descriptor.baseArguments, task: task, workspace: ws, resume: resume)
