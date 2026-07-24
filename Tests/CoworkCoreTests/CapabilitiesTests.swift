@@ -380,7 +380,7 @@ struct CapabilitiesTests {
 
     /// `supports_follow_up` is literally `agent is FollowUpCapable`, the same
     /// pattern as `supports_message` / `SessionCapable`. The two cannot drift.
-    @Test("supports_follow_up is the FollowUpCapable conformance, not an independent Bool")
+    @Test("supports_follow_up is the agent's wired mechanism, not an independent Bool")
     func followUpIsTheConformance() async throws {
         let claude = try installedExecutable(named: "claude")
         let codex = try installedExecutable(named: "codex")
@@ -394,10 +394,10 @@ struct CapabilitiesTests {
         let codexAgent = CliRegistry.agent(for: CliConfig(
             name: "codex", executable: codex, kind: .codex, origin: .global))
 
-        #expect(byID["claude"]?.supportsFollowUp == (claudeAgent is FollowUpCapable))
-        #expect(byID["codex"]?.supportsFollowUp == (codexAgent is FollowUpCapable))
-        #expect(claudeAgent is FollowUpCapable)
-        #expect(!(codexAgent is FollowUpCapable))
+        #expect(byID["claude"]?.supportsFollowUp == claudeAgent?.isFollowUpCapable)
+        #expect(byID["codex"]?.supportsFollowUp == codexAgent?.isFollowUpCapable)
+        #expect(claudeAgent?.isFollowUpCapable == true)
+        #expect(codexAgent?.isFollowUpCapable == false)
     }
 
     /// A CLI cowork has no driver for cannot be messaged by cowork, whatever the

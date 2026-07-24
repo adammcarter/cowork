@@ -4,11 +4,17 @@ import Testing
 @testable import CoworkCore
 
 /// Codex's one-shot wire: `codex exec`, the task on stdin. The third stdin shape
-/// (claude: a JSON envelope; grok: nothing; codex: the raw task), added with no new
-/// engine machinery.
-@Suite("CodexOneShotDriver")
+/// (claude: a JSON envelope; grok: nothing; codex: the raw task).
+///
+/// These assertions are the FROZEN PIN for codex's wire. They were written against
+/// the hand-written `CodexOneShotDriver` and proven identical to `ConfiguredDriver`
+/// interpreting `BuiltinDescriptors.codex` before that driver was deleted — so the
+/// subject changed and not one expectation did. A descriptor drift breaks these.
+@Suite("Codex built-in wire")
 struct CodexOneShotDriverTests {
-    private let driver = CodexOneShotDriver(executable: URL(fileURLWithPath: "/usr/local/bin/codex"))
+    private let driver = ConfiguredDriver(name: "codex",
+                                          executable: URL(fileURLWithPath: "/usr/local/bin/codex"),
+                                          descriptor: BuiltinDescriptors.codex)
 
     @Test("invocation is `codex exec` — bypassing codex's own trust/sandbox, which cowork already provides — with the raw task on stdin")
     func invocationShape() {

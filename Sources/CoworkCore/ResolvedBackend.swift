@@ -180,8 +180,11 @@ public enum BackendResolver {
         }
 
         // Blockers explain a missing operation; they are not a second capability source.
-        if !(agent is SessionCapable) { diagnostics += agent.messageBlocker }
-        if !(agent is FollowUpCapable) { diagnostics += agent.followUpBlocker }
+        if !agent.isSessionCapable { diagnostics += agent.messageBlocker }
+        if !agent.isFollowUpCapable { diagnostics += agent.followUpBlocker }
+        // Asserted-by-config is reported DISTINCTLY from proven-against-the-CLI, so a
+        // configured capability is never presented as a verified one (ADR 000).
+        diagnostics += agent.provenanceDiagnostics
 
         // Re-resolve the agent inside each factory from the Sendable CliConfig so the
         // factories themselves stay @Sendable (the agent existential is not).
@@ -194,7 +197,9 @@ public enum BackendResolver {
             }
             let runner = CliRunner(executable: cliConfig.executable, driver: agent.oneShot(),
                                    spawn: ContainedProcessSpawner(),
-                                   cpuSecondsLimit: 1800, timeout: 1800, resume: ctx.resume)
+                                   cpuSecondsLimit: rlim_t(agent.descriptor.cpuSeconds),
+                                   timeout: TimeInterval(agent.descriptor.timeoutSeconds),
+                                   resume: ctx.resume)
             return ResolvedOneShot { task, workspace in
                 let o = runner.run(task: task, workspace: workspace)
                 return (o.state, o.text, o.diagnostics, o.transcript, o.continuation)
@@ -202,9 +207,9 @@ public enum BackendResolver {
         }
 
         let interactive: (@Sendable (DispatchContext) throws -> SessionTransport)?
-        if agent is SessionCapable {
+        if agent.isSessionCapable {
             interactive = { ctx in
-                guard let sessionAgent = CliRegistry.agent(for: cliConfig) as? SessionCapable else {
+                guard let sessionAgent = CliRegistry.agent(for: cliConfig), sessionAgent.isSessionCapable else {
                     // Registry and the resolve-time check disagreed — refuse rather than crash.
                     throw CliSession.SessionError.spawnFailed(-1)
                 }
@@ -215,7 +220,7 @@ public enum BackendResolver {
         }
 
         let followUp: (@Sendable (DispatchContext) -> ResolvedOneShot)?
-        if agent is FollowUpCapable {
+        if agent.isFollowUpCapable {
             // Follow-up is one-shot with a resume handle — the same runner path.
             followUp = oneShot
         } else {

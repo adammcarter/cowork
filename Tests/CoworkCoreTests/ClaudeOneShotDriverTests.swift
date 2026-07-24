@@ -3,13 +3,17 @@ import Testing
 
 @testable import CoworkCore
 
-/// The claude one-shot wire, now a testable value in the core rather than
-/// app-target code no unit test could reach. Invocation shape (stream-json flags,
-/// the task as a JSON user message on stdin) and NDJSON parse are exercised
-/// directly, without spawning claude.
-@Suite("ClaudeOneShotDriver")
+/// The claude one-shot wire: invocation shape (stream-json flags, the task as a JSON
+/// user message on stdin) and NDJSON parse, exercised without spawning claude.
+///
+/// These assertions are the FROZEN PIN for claude's wire — written against the
+/// hand-written `ClaudeOneShotDriver` and proven identical to `ConfiguredDriver`
+/// interpreting `BuiltinDescriptors.claude` before that driver was deleted.
+@Suite("Claude built-in wire")
 struct ClaudeOneShotDriverTests {
-    private let driver = ClaudeOneShotDriver(executable: URL(fileURLWithPath: "/bin/claude"))
+    private let driver = ConfiguredDriver(name: "claude",
+                                          executable: URL(fileURLWithPath: "/bin/claude"),
+                                          descriptor: BuiltinDescriptors.claude)
 
     private func decodeStdin(_ data: Data?) -> [String: Any]? {
         guard let data else { return nil }

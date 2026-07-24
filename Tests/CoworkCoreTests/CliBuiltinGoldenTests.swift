@@ -3,140 +3,96 @@ import Testing
 
 @testable import CoworkCore
 
-/// The regression gate: `ConfiguredDriver` interpreting a `BuiltinDescriptors`
-/// constant must be byte-identical to the hand-written oracle driver it replaces —
-/// argv, raw stdin bytes, and env on the invocation side; state/text/diagnostics/
-/// transcript/continuation on the parse side — across the workspace×resume matrix
-/// and the declaration fixtures (including the branches the spike got wrong).
+/// The regression gate for the built-in descriptors, across the workspace×resume
+/// matrix and the verdict-label surface.
 ///
-/// The oracle IS the expected value, so this proves equivalence without re-specifying
-/// the wire; when the oracle drivers are deleted these fixtures become the frozen pins.
-@Suite("Built-in descriptor golden equivalence")
+/// History matters here: these expectations were first written as a live comparison
+/// against the hand-written `ClaudeOneShotDriver` / `GrokOneShotDriver` /
+/// `CodexOneShotDriver` and passed against them, which is what licensed deleting
+/// those drivers. What remains are the frozen values that comparison proved — the
+/// per-dialect wire itself is pinned in the three "built-in wire" suites.
+@Suite("Built-in descriptor golden pins")
 struct CliBuiltinGoldenTests {
     private let claudeExe = URL(fileURLWithPath: "/usr/local/bin/claude")
     private let grokExe = URL(fileURLWithPath: "/opt/grok/bin/grok")
     private let codexExe = URL(fileURLWithPath: "/usr/bin/codex")
+    private let ws = Workspace(root: URL(fileURLWithPath: "/tmp/ws"), writable: true)
 
-    private var matrix: [(Workspace?, String?)] {
-        let ws = Workspace(root: URL(fileURLWithPath: "/tmp/ws"), writable: true)
-        return [(nil, nil), (ws, nil), (nil, "R-123"), (ws, "R-123")]
+    private func driver(_ name: String, _ exe: URL, _ d: CliDescriptor) -> ConfiguredDriver {
+        ConfiguredDriver(name: name, executable: exe, descriptor: d)
     }
 
-    /// argv and env are byte-identical; stdin is compared SEMANTICALLY. A JSON envelope
-    /// (claude) has no stable key order — `JSONSerialization` orders a dict arbitrarily,
-    /// so the production driver itself varies run-to-run — and claude accepts any order.
-    /// Byte-identity of a JSON envelope is not a real invariant; equal-JSON is.
-    private func invocationsEquivalent(_ a: Invocation, _ b: Invocation) -> Bool {
-        guard a.arguments == b.arguments, a.extraEnvironment == b.extraEnvironment else { return false }
-        switch (a.stdin, b.stdin) {
-        case (nil, nil): return true
-        case let (x?, y?):
-            if x == y { return true }
-            let jx = try? JSONSerialization.jsonObject(with: x)
-            let jy = try? JSONSerialization.jsonObject(with: y)
-            return jx != nil && NSDictionary(dictionary: (jx as? [String: Any]) ?? [:])
-                .isEqual(to: (jy as? [String: Any]) ?? [:])
-        default: return false
-        }
+    @Test("claude: workspace is ignored (no --cwd flag), resume appends --resume")
+    func claudeMatrix() {
+        let d = driver("claude", claudeExe, BuiltinDescriptors.claude)
+        let base = ["-p", "--input-format", "stream-json", "--output-format", "stream-json",
+                    "--verbose", "--permission-mode", "dontAsk",
+                    "--allowed-tools", "Read", "Write", "--strict-mcp-config"]
+        #expect(d.invocation(task: "t", workspace: nil, resume: nil).arguments == base)
+        #expect(d.invocation(task: "t", workspace: ws, resume: nil).arguments == base,
+                "claude has no workspace flag: process cwd is the only root")
+        #expect(d.invocation(task: "t", workspace: ws, resume: "R").arguments == base + ["--resume", "R"])
+        #expect(d.deadlineDiagnostic == "cli.deadline", "claude's diagnostic is the asymmetric one")
     }
 
-    // Test 6 — invocation equivalence (argv/env byte-identical, JSON stdin semantically equal)
-    @Test("claude invocation matches the oracle across workspace×resume")
-    func claudeInvocationMatchesOracle() {
-        let oracle = ClaudeOneShotDriver(executable: claudeExe)
-        let cfg = ConfiguredDriver(name: "claude", executable: claudeExe, descriptor: BuiltinDescriptors.claude)
-        for (ws, resume) in matrix {
-            #expect(invocationsEquivalent(cfg.invocation(task: "do X", workspace: ws, resume: resume),
-                                          oracle.invocation(task: "do X", workspace: ws, resume: resume)),
-                    "claude ws=\(String(describing: ws?.root.path)) resume=\(String(describing: resume))")
-        }
-        #expect(cfg.deadlineDiagnostic == oracle.deadlineDiagnostic)
+    @Test("grok: --cwd then -r, in that order, and the bin dir leads PATH")
+    func grokMatrix() {
+        let d = driver("grok", grokExe, BuiltinDescriptors.grok)
+        let base = ["-p", "t", "--output-format", "json", "--no-auto-update", "--always-approve"]
+        #expect(d.invocation(task: "t", workspace: nil, resume: nil).arguments == base)
+        #expect(d.invocation(task: "t", workspace: ws, resume: "R").arguments
+                == base + ["--cwd", "/tmp/ws", "-r", "R"])
+        #expect(d.invocation(task: "t", workspace: nil, resume: nil).extraEnvironment
+                == ["PATH=/opt/grok/bin:/usr/bin:/bin:/usr/sbin:/sbin"])
+        #expect(d.deadlineDiagnostic == "cli.grok.deadline")
     }
 
-    @Test("grok invocation is byte-identical to the oracle (argv, PATH env)")
-    func grokInvocationMatchesOracle() {
-        let oracle = GrokOneShotDriver(executable: grokExe)
-        let cfg = ConfiguredDriver(name: "grok", executable: grokExe, descriptor: BuiltinDescriptors.grok)
-        for (ws, resume) in matrix {
-            #expect(cfg.invocation(task: "sum", workspace: ws, resume: resume)
-                    == oracle.invocation(task: "sum", workspace: ws, resume: resume),
-                    "grok ws=\(String(describing: ws?.root.path)) resume=\(String(describing: resume))")
-        }
-        #expect(cfg.deadlineDiagnostic == oracle.deadlineDiagnostic)
+    @Test("codex: -C carries the workspace and a resume handle is dropped, never faked")
+    func codexMatrix() {
+        let d = driver("codex", codexExe, BuiltinDescriptors.codex)
+        let base = ["exec", "--ignore-user-config",
+                    "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check"]
+        #expect(d.invocation(task: "t", workspace: nil, resume: nil).arguments == base)
+        #expect(d.invocation(task: "t", workspace: ws, resume: "R").arguments == base + ["-C", "/tmp/ws"],
+                "codex exec has no resume: the handle is dropped rather than invented")
+        #expect(d.invocation(task: "t", workspace: nil, resume: nil).stdin == Data("t".utf8))
+        #expect(d.deadlineDiagnostic == "cli.codex.deadline")
     }
 
-    @Test("codex invocation is byte-identical to the oracle (raw stdin, dropped resume)")
-    func codexInvocationMatchesOracle() {
-        let oracle = CodexOneShotDriver(executable: codexExe)
-        let cfg = ConfiguredDriver(name: "codex", executable: codexExe, descriptor: BuiltinDescriptors.codex)
-        for (ws, resume) in matrix {
-            #expect(cfg.invocation(task: "go", workspace: ws, resume: resume)
-                    == oracle.invocation(task: "go", workspace: ws, resume: resume),
-                    "codex ws=\(String(describing: ws?.root.path)) resume=\(String(describing: resume))")
-        }
-        #expect(cfg.deadlineDiagnostic == oracle.deadlineDiagnostic)
-    }
-
-    // Test 8 — parse equivalence incl. transcript, diagnostics, continuation
-    @Test("claude parse matches the oracle across declaration fixtures")
-    func claudeParseMatchesOracle() {
-        let oracle = ClaudeOneShotDriver(executable: claudeExe)
-        let cfg = ConfiguredDriver(name: "claude", executable: claudeExe, descriptor: BuiltinDescriptors.claude)
-        let fixtures: [(String, Int32)] = [
-            // success + session id
-            ("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"hi\"}]},\"session_id\":\"S1\"}\n{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"DONE\",\"session_id\":\"S1\"}", 0),
-            // declared error
-            ("{\"type\":\"result\",\"subtype\":\"error_max_turns\",\"is_error\":true,\"result\":\"partial\"}", 0),
-            // no declaration at all
-            ("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"hi\"}]}}", 0),
-            // declared success but nonzero exit (the disagreement branch)
-            ("{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"OK\",\"session_id\":\"S2\"}", 1 << 8),
-        ]
-        for (body, exit) in fixtures {
-            #expect(cfg.parse(output: Data(body.utf8), exitStatus: exit)
-                    == oracle.parse(output: Data(body.utf8), exitStatus: exit), "claude fixture exit=\(exit)")
-        }
-    }
-
-    @Test("grok parse matches the oracle incl. preamble scan, truncation, unparseable")
-    func grokParseMatchesOracle() {
-        let oracle = GrokOneShotDriver(executable: grokExe)
-        let cfg = ConfiguredDriver(name: "grok", executable: grokExe, descriptor: BuiltinDescriptors.grok)
-        let fixtures: [(String, Int32)] = [
-            ("{\"text\":\"ANS\",\"stopReason\":\"EndTurn\",\"sessionId\":\"G1\"}", 0),
-            ("{\"text\":\"ANS\",\"stopReason\":\"EndTurn\",\"thought\":\"hmm\",\"sessionId\":\"G1\"}", 0),
-            ("{\"text\":\"partial\",\"stopReason\":\"MaxTokens\"}", 0),
-            ("chatter before {\"text\":\"ok\",\"stopReason\":\"EndTurn\"}", 0),  // two-stage scan
-            ("not json at all", 1),                                             // unparseable
-            ("{\"text\":\"ANS\",\"stopReason\":\"EndTurn\"}", 5 << 8),          // nonzero exit + EndTurn
-        ]
-        for (body, exit) in fixtures {
-            #expect(cfg.parse(output: Data(body.utf8), exitStatus: exit)
-                    == oracle.parse(output: Data(body.utf8), exitStatus: exit), "grok fixture exit=\(exit): \(body.prefix(30))")
-        }
-    }
-
-    @Test("codex parse matches the oracle (raw text, exit-code verdict, cli.codex.exit)")
-    func codexParseMatchesOracle() {
-        let oracle = CodexOneShotDriver(executable: codexExe)
-        let cfg = ConfiguredDriver(name: "codex", executable: codexExe, descriptor: BuiltinDescriptors.codex)
-        let fixtures: [(String, Int32)] = [("did the work\n", 0), ("boom", 3 << 8), ("partial output", 1 << 8)]
-        for (body, exit) in fixtures {
-            #expect(cfg.parse(output: Data(body.utf8), exitStatus: exit)
-                    == oracle.parse(output: Data(body.utf8), exitStatus: exit), "codex fixture exit=\(exit)")
-        }
-    }
-
-    // Test 7/9 — verdict strategy delegates verbatim + exitOnly label
-    @Test("exit-code strategy names the cli (cli.<name>.exit) and keeps codex bytes")
+    @Test("the exit-code strategy names the cli, and codex's own bytes are unchanged")
     func exitOnlyLabelling() {
         #expect(Verdict.exitOnly(cliName: "codex", exitCode: 1).diagnostics == ["cli.codex.exit", "exit=1"])
         #expect(Verdict.codex(exitCode: 1).diagnostics == ["cli.codex.exit", "exit=1"])
-        // a generic CLI gets its own label
-        let opencode = ConfiguredDriver(name: "opencode", executable: URL(fileURLWithPath: "/o/opencode"),
-                                        descriptor: BuiltinDescriptors.codex)
+
+        let opencode = driver("opencode", URL(fileURLWithPath: "/o/opencode"), BuiltinDescriptors.codex)
         let out = opencode.parse(output: Data("x".utf8), exitStatus: 1 << 8)
-        #expect(out.diagnostics == ["cli.opencode.exit", "exit=1"])
+        #expect(out.diagnostics == ["cli.opencode.exit", "exit=1"], "a config-wired cli gets its own label")
         #expect(out.state == .failed)
+    }
+
+    /// The branches the shape spike got wrong: a declared success with a nonzero exit
+    /// is still a success (with the disagreement recorded), and a missing declaration
+    /// is a failure however the process exited.
+    @Test("verdict strategies delegate verbatim on the honest-disagreement branches")
+    func verdictDelegationBranches() {
+        let claude = driver("claude", claudeExe, BuiltinDescriptors.claude)
+        let ok = "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"OK\"}"
+        let declaredSuccessNonzero = claude.parse(output: Data(ok.utf8), exitStatus: 1 << 8)
+        #expect(declaredSuccessNonzero.state == .succeeded)
+        #expect(declaredSuccessNonzero.diagnostics == ["cli.nonzero-exit-despite-declared-success", "exit=1"])
+
+        let silent = claude.parse(output: Data("{\"type\":\"assistant\"}".utf8), exitStatus: 0)
+        #expect(silent.state == .failed)
+        #expect(silent.diagnostics == ["cli.no-declared-result", "exit=0"])
+
+        let grok = driver("grok", grokExe, BuiltinDescriptors.grok)
+        let endTurnNonzero = grok.parse(
+            output: Data("{\"text\":\"a\",\"stopReason\":\"EndTurn\"}".utf8), exitStatus: 5 << 8)
+        #expect(endTurnNonzero.state == .succeeded)
+        #expect(endTurnNonzero.diagnostics == ["cli.grok.nonzero-exit-despite-endturn", "exit=5"])
+
+        let noDeclaration = grok.parse(output: Data("{\"text\":\"a\"}".utf8), exitStatus: 0)
+        #expect(noDeclaration.state == .failed)
+        #expect(noDeclaration.diagnostics == ["cli.grok.no-declared-result", "exit=0"])
     }
 }

@@ -4,11 +4,17 @@ import Testing
 @testable import CoworkCore
 
 /// Grok's one-shot wire as a core value: a different protocol from claude's
-/// stream-json (task as an argument, one JSON object out, its own PATH), now
-/// exercised without spawning grok.
-@Suite("GrokOneShotDriver")
+/// stream-json (task as an argument, one JSON object out, its own PATH), exercised
+/// without spawning grok.
+///
+/// These assertions are the FROZEN PIN for grok's wire — written against the
+/// hand-written `GrokOneShotDriver` and proven identical to `ConfiguredDriver`
+/// interpreting `BuiltinDescriptors.grok` before that driver was deleted.
+@Suite("Grok built-in wire")
 struct GrokOneShotDriverTests {
-    private let driver = GrokOneShotDriver(executable: URL(fileURLWithPath: "/opt/grok/bin/grok"))
+    private let driver = ConfiguredDriver(name: "grok",
+                                          executable: URL(fileURLWithPath: "/opt/grok/bin/grok"),
+                                          descriptor: BuiltinDescriptors.grok)
 
     @Test("invocation passes the task as -p, asks for JSON, writes nothing to stdin, and puts grok's bin dir on PATH")
     func invocationShape() {
