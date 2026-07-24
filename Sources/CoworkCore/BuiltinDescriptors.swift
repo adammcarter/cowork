@@ -6,6 +6,7 @@ import Foundation
 /// it replaces (pinned by the golden equivalence tests). A built-in is never authored
 /// from config — it resolves to the constant here.
 public enum BuiltinDescriptors {
+//: @use-case:cli.claude.dispatch_is_contained_and_collected#claude_wire
     /// Claude: stream-json envelope on stdin, declaration read from the `result`
     /// object, `--resume` follow-up. Deadline diagnostic is the asymmetric `cli.deadline`.
     public static let claude = CliDescriptor(
@@ -20,6 +21,7 @@ public enum BuiltinDescriptors {
         continuationField: "session_id",
         verdict: .claudeDeclared,
         deadlineDiagnostic: "cli.deadline")
+//: @use-case:end cli.claude.dispatch_is_contained_and_collected#claude_wire
 
     /// Grok: task in argv, single JSON object read by `text`/`stopReason`/`sessionId`,
     /// `--cwd`/`-r`, and its bin dir prepended to PATH.
@@ -35,6 +37,7 @@ public enum BuiltinDescriptors {
         verdict: .grokStopReason,
         deadlineDiagnostic: "cli.grok.deadline")
 
+//: @use-case:cli.codex.dispatch_is_contained_and_collected#codex_wire
     /// Codex: `codex exec`, raw task on stdin, raw stdout answer, verdict by exit code,
     /// `-C` workspace, no follow-up handle.
     public static let codex = CliDescriptor(
@@ -47,6 +50,7 @@ public enum BuiltinDescriptors {
         continuationField: nil,
         verdict: .exitCodeOnly,
         deadlineDiagnostic: "cli.codex.deadline")
+//: @use-case:end cli.codex.dispatch_is_contained_and_collected#codex_wire
 
     /// The descriptor for a recognised built-in dialect, or nil for `.unknown`.
     public static func forDialect(_ dialect: CliDialect) -> CliDescriptor? {

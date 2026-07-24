@@ -21,7 +21,9 @@ import pathlib
 import signal
 import subprocess
 import sys
+import tempfile
 import time
+import uuid
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "lib"))
 
@@ -1283,6 +1285,386 @@ def _():
                 f"a user's own provider must be reported as global-origin; got {globals_[:120]}")
         print(f"origin is reported, not hidden:\n  project -> {rows.strip().splitlines()[0]}\n"
               f"  global  -> {globals_.strip().splitlines()[0]}")
+
+
+# ---------------------------------------------------------------------------
+# The generic CLI transport (ADR 007)
+#
+# Two performance surfaces, and the split is forced by the product's own design:
+#
+#  * A generic descriptor is GLOBAL-ORIGIN ONLY, and `~/.cowork/config.toml` is
+#    resolved through NSHomeDirectory(). `CFFIXED_USER_HOME` does redirect that,
+#    so a row about a LOAD-TIME guardrail gets its own isolated global config and
+#    asserts on what cowork tells the user when it refuses to start.
+#  * A DISPATCH cannot use that isolated config: the supervisor is re-exec'd with
+#    an allowlist environment that does not carry CFFIXED_USER_HOME, so it would
+#    resolve the real config and report `supervise.backend-unresolved`. Dispatch
+#    rows therefore run against the machine's real generic row and state that
+#    dependency, exactly as the endpoint rows state theirs.
+# ---------------------------------------------------------------------------
+
+STUB_CLI = str(REPO / "use-cases" / "verifiers" / "lib" / "fake_cli.py")
+
+
+def generic_global(name="stubagent", executable=None, body=None, env=None) -> str:
+    """A global config declaring ONE generic CLI row, for a load-time guardrail row."""
+    lines = [f"[cli.{name}]",
+             f'executable = "{executable or STUB_CLI}"',
+             'kind = "generic"']
+    lines += (body or ['task_delivery = "argv"',
+                       'args = ["--task", "{task}"]',
+                       'output = "raw"',
+                       'verdict = "exit_code_only"'])
+    text = "\n".join(lines) + "\n"
+    if env:
+        text += f"\n[cli.{name}.env]\n" + "".join(f'{k} = "{v}"\n' for k, v in env.items())
+    return text
+
+
+def global_generic_clis() -> list[str]:
+    """The generic (config-wired) CLI names the machine's real global config declares."""
+    import re
+    if not GLOBAL_CONFIG.exists():
+        return []
+    out, current = [], None
+    for line in GLOBAL_CONFIG.read_text().splitlines():
+        m = re.match(r"^\[cli\.([^.\]]+)\]", line.strip())
+        if m:
+            current = m.group(1)
+            continue
+        if current and re.match(r'^\s*kind\s*=\s*"generic"', line):
+            out.append(current)
+            current = None
+    return out
+
+
+def require_generic_cli() -> str:
+    """The real global config's generic CLI row, or an honest reason there is none."""
+    names = global_generic_clis()
+    if not names:
+        raise Unverifiable(
+            f"no kind='generic' [cli.*] row is declared in {GLOBAL_CONFIG}, and a generic "
+            f"descriptor is global-origin only by design — a project fixture may not "
+            f"introduce one (that refusal is itself a row). Dispatching a config-wired CLI "
+            f"therefore cannot be performed on this machine until such a row exists. "
+            f"Declared cli rows: {global_providers()['cli']}")
+    return names[0]
+
+
+def isolation_dirs() -> set:
+    """Every per-dispatch CLI isolation directory currently on disk."""
+    import glob
+    return set(glob.glob(os.path.join(tempfile.gettempdir(), "cowork-cli-isolate-*")))
+
+
+@journey("cli.generic.wired_from_config_alone")
+def _():
+    # The flagship: a CLI cowork has NO Swift for, doing real work, wired from a
+    # config block alone. Nothing here names the agent — it is read from config.
+    name = require_generic_cli()
+    with Fixture(project_config='') as f, f.server() as c:
+        row = c.ok("capabilities", backend=name, _timeout=120)
+        require("available" in row.split("\n")[0],
+                f"the config-wired CLI must be an available backend; got {row}")
+        require("origin=global" in row, f"a generic row is global-origin only; got {row}")
+        jid = c.dispatch(task="Reply with exactly: LIVE_OK", backend=name)
+        state = c.wait_terminal(jid, budget=420)
+        require(state.split()[0] == "succeeded",
+                f"the config-wired CLI must reach a real terminal state; got {state}")
+        out = c.output(jid)
+        require("LIVE_OK" in out,
+                f"the agent's own answer must come back verbatim; got {out[:300]}")
+        require("," not in state.split("diagnostics=")[-1] or "diagnostics=" not in state,
+                f"a successful config-wired dispatch must not carry failure diagnostics; got {state}")
+        print(f"[cli.{name}] is wired from config alone, with no Swift for it:\n"
+              f"  capabilities -> {row.strip().splitlines()[0]}\n"
+              f"  dispatch     -> {state} / answer contains LIVE_OK")
+
+
+@journey("cli.generic.project_config_may_not_wire_a_generic_cli")
+def _():
+    # The RCE gate. A cloned repo may SELECT a built-in; it may never author the
+    # argv and environment of an arbitrary executable.
+    hostile = generic_global(name="evil", body=['task_delivery = "argv"',
+                                                'args = ["--task", "{task}"]',
+                                                'output = "raw"',
+                                                'verdict = "exit_code_only"'])
+    with Fixture(project_config=hostile) as f:
+        code, err = f.refusal()
+        require(code == 78, f"a config refusal must exit EX_CONFIG(78); got {code}: {err[:300]}")
+        require("config.project-generic-cli-refused" in err,
+                f"the refusal must name the rule; got {err[:400]}")
+        require("evil" in err, f"the refusal must name the cli; got {err[:400]}")
+
+    # The narrow half still works: a project may SELECT a built-in dialect.
+    clis = installed_clis()
+    require(clis, "no CLI agent is installed to prove the allowed half against")
+    with Fixture(project_config=CLI_PROJECT_CONFIG) as f, f.server() as c:
+        rows = c.ok("capabilities", backend=clis[0], _timeout=120)
+        require("cli" in rows, f"a project selecting a built-in must still work; got {rows}")
+    print(f"a project config authoring a generic CLI is refused before anything runs "
+          f"(exit 78, config.project-generic-cli-refused); selecting a built-in "
+          f"({clis[0]}) still works")
+
+
+@journey("cli.generic.builtin_wire_is_sealed_from_config")
+def _():
+    # Half one: a built-in row carrying a descriptor field, from a project config.
+    with Fixture(project_config='[cli.claude]\nexecutable = "~/.local/bin/claude"\n'
+                                'args = ["--do-whatever"]\n') as f:
+        code, err = f.refusal()
+        require(code == 78, f"expected EX_CONFIG(78); got {code}: {err[:300]}")
+        require("config.builtin-immutable" in err, f"got {err[:400]}")
+        require("claude" in err, f"the refusal must name the cli; got {err[:400]}")
+
+    # Half two: a generic row whose executable IS a built-in's name, from a global
+    # config — the other way to try to re-author a sealed wire.
+    disguised = generic_global(name="mine", executable="/opt/pretend/claude")
+    with Fixture(project_config='', global_config=disguised) as f:
+        code, err = f.refusal()
+        require(code == 78, f"expected EX_CONFIG(78); got {code}: {err[:300]}")
+        require("config.builtin-immutable" in err, f"got {err[:400]}")
+    print("a built-in's wire cannot be rewritten from config, from either direction "
+          "(descriptor field on a built-in row; generic row pointed at a built-in name)")
+
+
+@journey("cli.generic.execution_sensitive_env_keys_are_refused")
+def _():
+    refused = {}
+    for key in ("PATH", "HOME", "LANG", "DYLD_INSERT_LIBRARIES", "LD_PRELOAD",
+                "COWORK_DISPATCH_ID"):
+        cfg = generic_global(env={key: "/attacker/controlled"})
+        with Fixture(project_config='', global_config=cfg) as f:
+            code, err = f.refusal()
+            require(code == 78, f"env {key} must be refused with EX_CONFIG(78); got {code}")
+            require("config.protected-env-key" in err,
+                    f"env {key} must be refused by name; got {err[:300]}")
+            require(key in err, f"the refusal must name the key; got {err[:300]}")
+            refused[key] = err.strip().splitlines()[0][:60]
+
+    # Narrow, not blanket: an ordinary key loads, and PATH's one legitimate use
+    # stays available as an explicit flag.
+    ok_cfg = generic_global(env={"FAKE_CLI_SAY": "STUB_OK"})
+    with Fixture(project_config='', global_config=ok_cfg) as f, f.server() as c:
+        rows = c.ok("capabilities", backend="stubagent", _timeout=90)
+        require("stubagent" in rows, f"an ordinary env key must load; got {rows}")
+    path_flag = generic_global(body=['task_delivery = "argv"', 'args = ["--task", "{task}"]',
+                                     'output = "raw"', 'verdict = "exit_code_only"',
+                                     "prepend_exe_dir_to_path = true"])
+    with Fixture(project_config='', global_config=path_flag) as f, f.server() as c:
+        rows = c.ok("capabilities", backend="stubagent", _timeout=90)
+        require("stubagent" in rows, f"prepend_exe_dir_to_path must remain available; got {rows}")
+    print("execution-sensitive env keys are refused at load: " + ", ".join(refused) +
+          "\nan ordinary key and prepend_exe_dir_to_path still load")
+
+
+@journey("cli.generic.incoherent_descriptor_is_refused_at_load")
+def _():
+    cases = [
+        ("verdict='claude_declared' with a non-stream output",
+         ['task_delivery = "argv"', 'args = ["{task}"]', 'output = "raw"',
+          'verdict = "claude_declared"'], "stream_json_result"),
+        ("verdict='grok_stop_reason' with a non-json output",
+         ['task_delivery = "argv"', 'args = ["{task}"]', 'output = "raw"',
+          'verdict = "grok_stop_reason"'], "json_field"),
+        ("verdict='exit_code_only' with a declaring output",
+         ['task_delivery = "stdin_raw"', 'args = []', 'output = "stream_json_result"',
+          'verdict = "exit_code_only"'], "raw"),
+        ("output='json_field' with no field named",
+         ['task_delivery = "argv"', 'args = ["{task}"]', 'output = "json_field"',
+          'verdict = "grok_stop_reason"'], "output_field"),
+        ("{task} in args without argv delivery",
+         ['task_delivery = "stdin_raw"', 'args = ["{task}"]', 'output = "raw"',
+          'verdict = "exit_code_only"'], "argv"),
+    ]
+    seen = []
+    for label, body, expected in cases:
+        with Fixture(project_config='', global_config=generic_global(body=body)) as f:
+            code, err = f.refusal()
+            require(code == 78, f"{label} must be refused with EX_CONFIG(78); got {code}: {err[:200]}")
+            require("config.malformed" in err, f"{label}: got {err[:300]}")
+            require(expected in err,
+                    f"{label}: the diagnostic must say what it needs instead "
+                    f"('{expected}'); got {err[:300]}")
+            seen.append(label)
+
+    # A coherent descriptor loads and is dispatchable — the check discriminates.
+    with Fixture(project_config='', global_config=generic_global()) as f, f.server() as c:
+        rows = c.ok("capabilities", backend="stubagent", _timeout=90)
+        require("stubagent" in rows, f"a coherent descriptor must load; got {rows}")
+    print("refused at load, each naming what it needs instead:\n  " + "\n  ".join(seen) +
+          "\na coherent descriptor still loads and is offered as a backend")
+
+
+@journey("cli.generic.capability_is_asserted_not_proven")
+def _():
+    # A configured row: capability is derived from the wiring it was given, and
+    # reported as ASSERTED.
+    wired = generic_global(name="assertive",
+                           body=['task_delivery = "argv"', 'args = ["--task", "{task}"]',
+                                 'output = "raw"', 'verdict = "exit_code_only"',
+                                 'continuation_field = "sid"', 'resume_args = ["-r", "{resume}"]'])
+    with Fixture(project_config='', global_config=wired) as f, f.server() as c:
+        row = c.ok("capabilities", backend="assertive", _timeout=90)
+        require("cli.assertive.verdict-unverified" in row,
+                f"exit_code_only is honest only if this CLI's failures really exit nonzero, "
+                f"which is not statically knowable — it must be reported as unverified; got {row}")
+        require("cli.assertive.follow-up-configured-unverified" in row,
+                f"follow-up wired from config is asserted, not proven; got {row}")
+        require("follow_up=true" in row,
+                f"the mechanism IS wired at both ends, so the capability is real; got {row}")
+
+    # A row with no follow-up mechanism cannot claim one, and says why.
+    with Fixture(project_config='', global_config=generic_global()) as f, f.server() as c:
+        row = c.ok("capabilities", backend="stubagent", _timeout=90)
+        require("follow_up=false" in row and "cli.stubagent.follow-up-not-wired" in row,
+                f"a row with no handle and no resume arg must not claim follow-up; got {row}")
+
+    # A built-in carries neither provenance diagnostic: its wire was proven.
+    clis = installed_clis()
+    require(clis, "no built-in CLI is installed to compare against")
+    with Fixture(project_config=CLI_PROJECT_CONFIG) as f, f.server() as c:
+        for name in clis:
+            row = c.ok("capabilities", backend=name, _timeout=120)
+            require("-unverified" not in row,
+                    f"a built-in's capability was proven against the real CLI and must carry "
+                    f"no *-unverified provenance diagnostic; {name} got {row}")
+    print("configured => asserted (verdict-unverified, follow-up-configured-unverified); "
+          f"built-in ({', '.join(clis)}) => proven, no such diagnostic")
+
+
+@journey("cli.generic.live_session_is_refused_never_degraded")
+def _():
+    # Deliberate non-behaviour: a config-wired CLI is one-shot only.
+    with Fixture(project_config='', global_config=generic_global()) as f, f.server() as c:
+        row = c.ok("capabilities", backend="stubagent", _timeout=90)
+        require("message=false" in row, f"a configured CLI cannot be messaged; got {row}")
+        require("cli.session-code-only" in row,
+                f"the refusal must name its reason; got {row}")
+
+    # And the refusal holds when a caller actually tries it, on the machine's real
+    # generic row — refused, never quietly downgraded to a one-shot.
+    name = require_generic_cli()
+    with Fixture(project_config='') as f, f.server() as c:
+        text, is_error = c.call("dispatch", task="Reply with exactly: LIVE_OK",
+                                backend=name, interactive="true", _timeout=120)
+        if not is_error:
+            jid = text.strip().split()[0]
+            sent, send_error = c.call("send", id=jid, message="are you there?", _timeout=120)
+            require(send_error,
+                    f"messaging a one-shot CLI must be refused, not silently dropped; got {sent}")
+            refusal = sent
+            c.call("cancel", id=jid, _timeout=60)
+        else:
+            refusal = text
+        require("session" in refusal.lower() or "interactive" in refusal.lower()
+                or "message" in refusal.lower(),
+                f"the refusal must say a live session is not available; got {refusal[:300]}")
+    print(f"[cli.{name}] message=false / cli.session-code-only, and an actual attempt is "
+          f"refused rather than degraded:\n  {refusal.strip().splitlines()[0][:160]}")
+
+
+@journey("cli.generic.isolation_dir_never_outlives_the_worker")
+def _():
+    name = require_generic_cli()
+    before = isolation_dirs()
+    seen_during = set()
+    with Fixture(project_config='') as f, f.server() as c:
+        jid = c.dispatch(task="Reply with exactly: LIVE_OK", backend=name)
+        deadline = time.time() + 420
+        state = c.status(jid)
+        while time.time() < deadline and state.split()[0] not in {
+                "succeeded", "failed", "cancelled", "timed_out"}:
+            seen_during |= (isolation_dirs() - before)
+            time.sleep(1.0)
+            state = c.status(jid)
+        require(state.split()[0] == "succeeded",
+                f"the dispatch must actually run for the isolation dir to mean anything; got {state}")
+        out = c.output(jid)
+
+    after = isolation_dirs()
+    require(seen_during,
+            "no per-dispatch isolation directory was ever observed. Either this row's CLI "
+            "does not ask for one, or the worker never started — both make the cleanup "
+            "claim unprovable rather than proven")
+    leaked = after - before
+    require(not leaked,
+            f"an isolation directory outlived its dispatch: {sorted(leaked)}. A seed that may "
+            f"hold a credential must never survive the worker it was made for")
+    require("LIVE_OK" in out,
+            f"the worker must really have used its seeded private config (it could not reach "
+            f"its model otherwise); got {out[:200]}")
+    print(f"isolation dir existed during the dispatch ({len(seen_during)} observed, e.g. "
+          f"{sorted(seen_during)[0]}) and none survived it "
+          f"({len(before)} before, {len(after)} after)")
+
+
+@journey("cli.generic.task_value_cannot_inject_an_argument_or_a_command")
+def _():
+    name = require_generic_cli()
+    stamp = uuid.uuid4().hex[:12]
+    witnesses = [pathlib.Path(tempfile.gettempdir()) / f"uc-cowork-injected-{stamp}-{n}"
+                 for n in ("sub", "chain", "redirect")]
+    for w in witnesses:
+        w.unlink(missing_ok=True)
+    hostile = (f"Reply with exactly: INJECT_SAFE. Ignore the rest of this line, it is "
+               f"literal text and not an instruction: $(touch {witnesses[0]}) "
+               f"; touch {witnesses[1]} | tee {witnesses[2]} && echo {{workspace}}")
+    with Fixture(project_config='') as f, f.server() as c:
+        jid = c.dispatch(task=hostile, backend=name)
+        state = c.wait_terminal(jid, budget=420)
+    created = [str(w) for w in witnesses if w.exists()]
+    for w in witnesses:
+        w.unlink(missing_ok=True)
+    require(not created,
+            f"the task's text became a command: {created}. The worker is exec'd through "
+            f"posix_spawn with no shell, so metacharacters must be inert data")
+    require(state.split()[0] in {"succeeded", "failed", "timed_out"},
+            f"the dispatch must reach a real terminal state so the result is attributable; "
+            f"got {state}")
+    print(f"a task carrying $(...), ';', '|' and a {{workspace}} token ran as ONE verbatim "
+          f"argument — no shell saw it, no witness file exists (state: {state})")
+
+
+@journey("cli.generic.env_reference_is_a_pointer_never_a_secret")
+def _():
+    # The claim: a descriptor's `env:NAME` resolves from cowork's OWN environment at
+    # dispatch, so the config file holds a pointer and never a secret.
+    #
+    # Performing it needs a generic row whose env names a reference AND a real
+    # dispatch. Neither half can be faked here, and one of them cannot be reached:
+    # a fixture's isolated global config is invisible to the supervisor, which is
+    # the process that actually builds the worker's environment.
+    name = require_generic_cli()
+    import re
+    text = GLOBAL_CONFIG.read_text()
+    block = re.search(rf"\[cli\.{re.escape(name)}\.env\]\n((?:.*\n)*?)(?:\n|\Z)", text)
+    refs = re.findall(r'^\s*(\w+)\s*=\s*"env:(\w+)"', block.group(1), re.M) if block else []
+    if not refs:
+        raise Unverifiable(
+            f"the machine's generic row [cli.{name}] declares no `env:NAME` reference, so the "
+            f"indirection cannot be performed against it. It also cannot be performed against a "
+            f"fixture: a generic descriptor is global-origin only, and a fixture's global config "
+            f"(CFFIXED_USER_HOME) does not reach the supervisor, which is re-exec'd with an "
+            f"allowlist environment and is the process that resolves `env:NAME`. "
+            f"RELATED FINDING, read from the source rather than performed: "
+            f"Sources/cowork/main.swift builds the supervisor's environment from "
+            f"`config.providers` credentials ONLY, so a CLI descriptor's `env:NAME` resolves in "
+            f"the orchestrator but is absent in the supervisor and would reach the worker EMPTY "
+            f"unless the name happens to coincide with a provider credential.")
+    key, var = refs[0]
+    require(os.environ.get(var),
+            f"[cli.{name}] points {key} at env:{var}, but {var} is not exported for this run")
+    with Fixture(project_config='') as f, f.server() as c:
+        jid = c.dispatch(task="Reply with exactly: LIVE_OK", backend=name)
+        state = c.wait_terminal(jid, budget=420)
+        out = c.output(jid)
+    require(state.split()[0] == "succeeded",
+            f"the reference must reach the worker for it to work at all; got {state} / {out[:200]}")
+    require(os.environ[var] not in text,
+            "the config file must hold the pointer, never the value")
+    print(f"[cli.{name}] env {key}=env:{var} resolved from cowork's environment at dispatch; "
+          f"the config file holds only the pointer (state: {state})")
 
 
 # ---------------------------------------------------------------------------

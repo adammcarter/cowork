@@ -102,3 +102,457 @@ use_cases:
           minimum_count: 1
     approval_policy:
       mode: none
+
+  # ---------------------------------------------------------------------------
+  # ADR 007 — the CLI transport is open to any agent, by descriptor.
+  #
+  # Adding a CLI agent is a config block, not a cowork release. That is real
+  # reach, and it is also the largest attack surface cowork has: a descriptor
+  # authors argv and environment for an ARBITRARY executable. So the rows below
+  # are as much about what config may NOT do as what it can.
+  # ---------------------------------------------------------------------------
+
+  - id: cli.generic.wired_from_config_alone
+    title: A CLI cowork has no code for is wired from config alone and does real work
+    lifecycle: active
+    value_tier: core
+    journey_role: golden
+    usage_frequency: common
+    tags: [adr-007, cli, generic, config]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/ConfiguredDriver.swift
+      - kind: file
+        path: Sources/CoworkCore/CliDescriptor.swift
+    actor: A user who wants cowork to drive an agent cowork has never heard of
+    intent: Delegate to an installed harness without waiting for a cowork release.
+    preconditions:
+      - A global `~/.cowork/config.toml` declaring a `kind = "generic"` CLI row (this machine wires `[cli.opencode]` at a local model).
+      - That executable is installed and its model is reachable.
+    trigger: The caller dispatches to the config-wired CLI by name.
+    scenarios:
+      - id: cli.generic.wired_from_config_alone.main
+        kind: steps
+        steps:
+          - Declare the CLI as a generic descriptor in the global config — argv, output shape, verdict rule.
+          - Ask capabilities whether cowork can see it.
+          - Dispatch a task with a verbatim expected answer and collect the result.
+    observable_outcomes:
+      - Capabilities reports the config-wired CLI as an available backend of origin=global, with no new Swift written for it.
+      - The dispatch reaches a terminal state and the agent's answer is returned verbatim.
+      - The descriptor's argv template and env reach the process — the answer could not be produced otherwise.
+      - A nonzero exit is a NAMED failure diagnostic `cli.<name>.exit`, never a quiet success.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: cli.generic.project_config_may_not_wire_a_generic_cli
+    title: A cloned repo cannot choose which binary cowork runs
+    lifecycle: active
+    value_tier: critical
+    journey_role: negative
+    usage_frequency: common
+    tags: [adr-007, adr-005, security, hostile-input, generic]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Config.swift
+    actor: A user running an agent in a repo they cloned
+    intent: Not have a cloned repository execute an arbitrary binary as them.
+    preconditions:
+      - A project config, arriving with a clone, declaring `kind = "generic"` with its own executable and argv.
+    trigger: Cowork starts in that project.
+    scenarios:
+      - id: cli.generic.project_config_may_not_wire_a_generic_cli.main
+        kind: steps
+        steps:
+          - Place a project config declaring a generic CLI pointed at an attacker-chosen executable.
+          - Start cowork in that directory.
+    observable_outcomes:
+      - Cowork refuses to start, naming the cli and the reason, rather than dropping the row quietly.
+      - The refusal is the whole process — the attacker's executable is never spawned and never appears as a backend.
+      - A project may still SELECT a built-in dialect; only authoring a new wire is refused. The weaker rule (allow it if the executable looks harmless) is worthless — argv and environment are the payload.
+      - This is strictly worse than the project-credential attack ADR 005 already refuses, and is refused on the same reasoning.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: cli.generic.builtin_wire_is_sealed_from_config
+    title: Config cannot re-author a built-in dialect's wire
+    lifecycle: active
+    value_tier: core
+    journey_role: negative
+    usage_frequency: occasional
+    tags: [adr-007, security, generic, config]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Config.swift
+    actor: A user editing their own config
+    intent: Trust that `claude` means claude, however the config file is written.
+    preconditions:
+      - A config declaring a built-in CLI row that also carries a descriptor field.
+      - A global config declaring a generic row whose executable is a built-in's name.
+    trigger: Cowork starts.
+    scenarios:
+      - id: cli.generic.builtin_wire_is_sealed_from_config.main
+        kind: steps
+        steps:
+          - Declare `[cli.claude]` carrying a descriptor field such as args.
+          - Separately, declare a generic row whose executable is named `claude`.
+          - Start cowork against each.
+    observable_outcomes:
+      - Both are refused at load with `config.builtin-immutable`, naming the cli.
+      - A sealed dialect's argv can never be rewritten from a file — the built-in wire is a constant in reviewed Swift.
+      - The refusal happens before any process is spawned.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: cli.generic.execution_sensitive_env_keys_are_refused
+    title: A descriptor may move bytes into a worker's environment, but not rewrite how it executes
+    lifecycle: active
+    value_tier: critical
+    journey_role: negative
+    usage_frequency: occasional
+    tags: [adr-007, security, generic, config]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Config.swift
+    actor: A user wiring a CLI that needs its own environment
+    intent: Give a worker the variables it needs without handing config control of the loader.
+    preconditions:
+      - A global config whose generic CLI env block sets an execution-sensitive key.
+    trigger: Cowork starts.
+    scenarios:
+      - id: cli.generic.execution_sensitive_env_keys_are_refused.main
+        kind: steps
+        steps:
+          - Declare a generic CLI whose env sets PATH, then DYLD_INSERT_LIBRARIES, then COWORK_DISPATCH_ID.
+          - Start cowork against each.
+    observable_outcomes:
+      - Each is refused at load with `config.protected-env-key`, naming the cli and the key.
+      - PATH, HOME, USER, LANG, and any COWORK_*, DYLD_* or LD_* key are refused — they alter execution or leak cowork's own state into the worker.
+      - PATH's one legitimate use stays available as the explicit `prepend_exe_dir_to_path` flag, so the denylist does not break the case it was written for.
+      - An ordinary key is accepted, so the guardrail is narrow rather than a blanket refusal.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: cli.generic.incoherent_descriptor_is_refused_at_load
+    title: A descriptor that could never read its worker's answer is refused when it is written, not when it runs
+    lifecycle: active
+    value_tier: core
+    journey_role: negative
+    usage_frequency: occasional
+    tags: [adr-007, adr-000, generic, config, truthful-outcomes]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/Config.swift
+    actor: A user wiring a CLI by hand
+    intent: Find out immediately that a descriptor is wrong, rather than after a run reports a false verdict.
+    preconditions:
+      - A global config whose generic CLI pairs a verdict rule with an output shape that cannot produce it.
+    trigger: Cowork starts.
+    scenarios:
+      - id: cli.generic.incoherent_descriptor_is_refused_at_load.main
+        kind: steps
+        steps:
+          - Pair verdict='claude_declared' with an output shape that is not stream_json_result.
+          - Pair verdict='grok_stop_reason' with an output shape that is not json_field.
+          - Pair verdict='exit_code_only' with a declaring output shape.
+          - Select output='json_field' without naming the field, and put {task} in args without task_delivery='argv'.
+    observable_outcomes:
+      - Each incoherent pairing is refused at load with a diagnostic naming the cli and what it needs instead.
+      - Judging a CLI that emits a declaration cowork can read by its exit code alone is refused — that is exactly selecting a strategy that ignores the worker's own words (ADR 000).
+      - A coherent descriptor loads and is dispatchable, so the check discriminates rather than blocking the feature.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: cli.generic.capability_is_asserted_not_proven
+    title: A configured capability is reported as asserted, a built-in's as proven
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: common
+    tags: [adr-007, adr-000, generic, capabilities, truthful-outcomes]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/ConfiguredAgent.swift
+    actor: An orchestrating agent choosing a backend
+    intent: Know the difference between a capability someone typed into a file and one that was observed.
+    preconditions:
+      - A global config declaring a generic CLI alongside the built-in dialects.
+    trigger: The caller asks capabilities.
+    scenarios:
+      - id: cli.generic.capability_is_asserted_not_proven.main
+        kind: steps
+        steps:
+          - Ask capabilities for a config-wired CLI and for the built-in dialects.
+          - Compare the diagnostics each carries.
+    observable_outcomes:
+      - A config-wired row selecting exit_code_only carries `cli.<name>.verdict-unverified` — honest only if that CLI's failures really do surface as a nonzero exit, which is not statically knowable.
+      - A config-wired row with follow-up wired carries `cli.<name>.follow-up-configured-unverified` — cowork will pass the handle back, but nothing has proven the worker honors it.
+      - A built-in carries neither, because its wire was proven against the real CLI.
+      - Capability is derived from the wiring the row was actually given, never declared by the row itself, so a config row cannot claim a capability it has no mechanism for.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: cli.generic.live_session_is_refused_never_degraded
+    title: A config-wired CLI is one-shot only, and says so instead of pretending
+    lifecycle: active
+    value_tier: core
+    journey_role: negative
+    usage_frequency: common
+    tags: [adr-007, adr-006, generic, capabilities, deliberate-non-behaviour]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/ConfiguredAgent.swift
+    actor: An orchestrating agent that wants a conversation
+    intent: Not send messages into a worker that will never read them.
+    preconditions:
+      - A global config declaring a generic CLI.
+    trigger: The caller asks whether it can be messaged, and tries.
+    scenarios:
+      - id: cli.generic.live_session_is_refused_never_degraded.main
+        kind: steps
+        steps:
+          - Ask capabilities whether the config-wired CLI supports messaging.
+          - Attempt to message a dispatch running on it.
+    observable_outcomes:
+      - Capabilities reports message=false with the reason `cli.session-code-only`.
+      - A live session is REFUSED rather than silently degraded to a one-shot, so a caller is never told a message was delivered when nothing read it.
+      - This is a deliberate non-behaviour, not a gap. A session speaks a bespoke stateful wire a descriptor cannot express, and the built-in adapters carry the user's own credentials — which must never be handed to an arbitrary configured binary.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: cli.generic.isolation_dir_never_outlives_the_worker
+    title: A worker's throwaway config directory is gone when the dispatch ends, however it ended
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: common
+    tags: [adr-007, adr-003, generic, containment, security]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/CliRunner.swift
+    actor: A user whose seeded worker config holds an API key
+    intent: Not leave a copy of a credential on disk after the work finishes.
+    preconditions:
+      - A global config whose generic CLI asks for an isolation directory, seeded from a template.
+    trigger: A dispatch to that CLI runs to completion.
+    scenarios:
+      - id: cli.generic.isolation_dir_never_outlives_the_worker.main
+        kind: steps
+        steps:
+          - Record the isolation directories present before the dispatch.
+          - Dispatch, and let the worker run to a terminal state.
+          - Record them again.
+    observable_outcomes:
+      - The worker really is given a private directory — it reads its seeded configuration from it, which is how it can reach its model at all.
+      - No isolation directory survives the dispatch — the count is unchanged and the run's own directory is gone.
+      - Cleanup is on every exit path, including the deadline short-circuit, so a seed that may hold secrets never outlives the worker it was made for.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: cli.generic.task_value_cannot_inject_an_argument_or_a_command
+    title: A hostile task is one verbatim argument, never a command
+    lifecycle: active
+    value_tier: critical
+    journey_role: negative
+    usage_frequency: common
+    tags: [adr-007, security, hostile-input, generic]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/ConfiguredDriver.swift
+    actor: A user relaying a task that came from somewhere else
+    intent: Not have the text of a task become part of the command that runs.
+    preconditions:
+      - A config-wired CLI whose argv template substitutes the task.
+    trigger: A task containing shell metacharacters, a command substitution, and a substitution token is dispatched.
+    scenarios:
+      - id: cli.generic.task_value_cannot_inject_an_argument_or_a_command.main
+        kind: steps
+        steps:
+          - Dispatch a task containing a command substitution that would create a witness file, plus shell metacharacters and a `{workspace}` token.
+          - Let it reach a terminal state, then look for the witness file.
+    observable_outcomes:
+      - The witness file does not exist — no shell ever saw the task, because the worker is exec'd through posix_spawn.
+      - Substitution is whole-argument and exact-token, so a task that merely contains a token is passed through verbatim rather than being expanded.
+      - The dispatch is judged on its own terms rather than failing in a way that hides whether injection occurred.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none
+
+  - id: cli.generic.env_reference_is_a_pointer_never_a_secret
+    title: A descriptor's `env:NAME` resolves from cowork's environment at dispatch
+    lifecycle: active
+    value_tier: core
+    journey_role: edge
+    usage_frequency: common
+    tags: [adr-007, adr-005, generic, credentials]
+    source_refs:
+      - kind: file
+        path: Sources/CoworkCore/ConfiguredDriver.swift
+    actor: A user wiring a CLI that needs an API key
+    intent: Keep the key out of the config file while still reaching the worker.
+    preconditions:
+      - A global config whose generic CLI env names a variable as `env:NAME`.
+      - That variable is exported in cowork's own environment.
+    trigger: A dispatch to that CLI runs.
+    scenarios:
+      - id: cli.generic.env_reference_is_a_pointer_never_a_secret.main
+        kind: steps
+        steps:
+          - Export the named variable for cowork.
+          - Declare the generic CLI's env entry as `env:NAME`.
+          - Dispatch, and inspect the environment the worker was actually handed.
+    observable_outcomes:
+      - The worker receives the VALUE from cowork's environment; the config file holds only the pointer.
+      - The value survives the supervisor boundary — the process that actually spawns the worker is a fresh process with an allowlist environment, so a reference that resolves in the orchestrator but not in the supervisor would silently become empty.
+      - An unset reference becomes empty rather than leaking the variable's name into the worker.
+    host_applicability:
+      - host_surface: claude.cli
+        supported: true
+      - host_surface: codex.cli
+        supported: true
+      - host_surface: copilot.cli
+        supported: true
+      - host_surface: opencode.cli
+        supported: true
+    verification_policy:
+      mode: requirements
+      requirements:
+        - evidence_kind: live_demo
+          required_verifiers: [journey]
+          minimum_count: 1
+    approval_policy:
+      mode: none

@@ -52,7 +52,8 @@ class Cowork:
     """One cowork server process, driven over stdio exactly as a host CLI drives it."""
 
     def __init__(self, home: pathlib.Path, cwd: pathlib.Path, store: pathlib.Path,
-                 extra_env: dict | None = None, inherit_home: bool = False):
+                 extra_env: dict | None = None, inherit_home: bool = False,
+                 fixed_home: pathlib.Path | None = None):
         self.home = pathlib.Path(home)
         self.cwd = pathlib.Path(cwd)
         self.store = pathlib.Path(store)
@@ -62,6 +63,12 @@ class Cowork:
         env = dict(os.environ)
         if not inherit_home:
             env["HOME"] = str(self.home)
+        # `fixed_home` redirects NSHomeDirectory() itself, which is what resolves
+        # ~/.cowork/config.toml — so a run can be given its OWN global config. $HOME
+        # alone cannot do this on Darwin; CFFIXED_USER_HOME can, and is verified by
+        # the guardrail journeys (a run with a fixed home sees ONLY its own config).
+        if fixed_home is not None:
+            env["CFFIXED_USER_HOME"] = str(fixed_home)
         env["COWORK_HOME"] = str(self.store)
         # Repo .env keys are deliberately NOT injected here. The documented
         # channel is the Fixture's project .env (with_keys=True) or an explicit
@@ -296,22 +303,33 @@ GLOBAL_CONFIG = pathlib.Path(NSHOME := os.path.expanduser("~")) / ".cowork" / "c
 class Fixture:
     """A throwaway project directory + store for one performed run.
 
-    A note that is itself a finding: this fixture CANNOT supply its own global
-    config. `~/.cowork/config.toml` is resolved through `NSHomeDirectory()`,
-    which on Darwin reads the password database and ignores `$HOME`, and cowork
-    exposes no override. `COWORK_HOME` redirects the *store* only. So the store
-    and the project config are isolated per run, while the provider set is
-    necessarily the real one on this machine. Rows that depend on a provider
-    therefore state that dependency, and a row needing a provider that is not
-    configured here is recorded as unverifiable rather than faked.
+    `~/.cowork/config.toml` is resolved through `NSHomeDirectory()`, which on
+    Darwin reads the password database and ignores `$HOME`; `COWORK_HOME`
+    redirects the *store* only. So by DEFAULT a fixture isolates the store and
+    the project config while the provider set is necessarily the real one on
+    this machine, and a row depending on a provider states that dependency
+    rather than faking it.
+
+    Passing `global_config=` opts into a fully isolated run: the fixture writes
+    that TOML to its own `<dir>/home/.cowork/config.toml` and points
+    `CFFIXED_USER_HOME` at it, which DOES redirect `NSHomeDirectory()`. The run
+    then sees only the config the row wrote — which is the only way to perform a
+    row about a *global-origin* config guardrail, because the generic CLI
+    descriptor is global-origin only by design.
     """
 
-    def __init__(self, project_config: str | None = None, with_keys: bool = True):
+    def __init__(self, project_config: str | None = None, with_keys: bool = True,
+                 global_config: str | None = None):
         self.dir = pathlib.Path(tempfile.mkdtemp(prefix="uc-cowork-"))
         self.proj = self.dir / "proj"
         self.store = self.dir / "store"
         self.proj.mkdir(parents=True)
         self.store.mkdir(parents=True)
+        self.fixed_home = None
+        if global_config is not None:
+            self.fixed_home = self.dir / "home"
+            (self.fixed_home / ".cowork").mkdir(parents=True)
+            (self.fixed_home / ".cowork" / "config.toml").write_text(global_config)
         if project_config is not None:
             (self.proj / "cowork.toml").write_text(project_config)
         # A dispatch resolves `env:` credentials only via a `.env` beside the
@@ -325,7 +343,28 @@ class Fixture:
 
     def server(self, **kw) -> Cowork:
         return Cowork(home=pathlib.Path.home(), cwd=self.proj, store=self.store,
-                      inherit_home=True, **kw)
+                      inherit_home=True, fixed_home=self.fixed_home, **kw)
+
+    def refusal(self, timeout: float = 30.0) -> tuple[int, str]:
+        """Start cowork and require that it REFUSES to start, returning (code, stderr).
+
+        A config mistake exits with a diagnosis (EX_CONFIG 78) rather than running
+        with the bad row quietly dropped, so a guardrail row asserts on what the
+        user is actually told. Raises if the server starts anyway — a guardrail
+        that does not fire is the finding.
+        """
+        env = dict(os.environ)
+        env["COWORK_HOME"] = str(self.store)
+        if self.fixed_home is not None:
+            env["CFFIXED_USER_HOME"] = str(self.fixed_home)
+        proc = subprocess.run([str(BINARY)], cwd=str(self.proj), env=env,
+                              stdin=subprocess.DEVNULL, capture_output=True,
+                              text=True, timeout=timeout)
+        if proc.returncode == 0:
+            raise CoworkFailure(
+                "cowork started normally on a config it must refuse. A guardrail that "
+                f"does not fire is the finding. stdout: {proc.stdout[:400]}")
+        return proc.returncode, proc.stderr
 
     def cleanup(self):
         shutil.rmtree(self.dir, ignore_errors=True)

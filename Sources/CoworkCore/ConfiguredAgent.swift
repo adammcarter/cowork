@@ -46,8 +46,10 @@ public struct ConfiguredAgent: Sendable {
         ConfiguredDriver(name: name, executable: executable, descriptor: descriptor)
     }
 
+//: @use-case:cli.generic.live_session_is_refused_never_degraded#session_code_only
     /// Whether a live session can be opened: a code-backed adapter exists.
     public var isSessionCapable: Bool { sessionAdapter != nil }
+//: @use-case:end cli.generic.live_session_is_refused_never_degraded#session_code_only
 
     /// Whether a finished dispatch's context can be carried into a new one: the
     /// mechanism is wired at both ends (capture a handle, pass it back).
@@ -68,6 +70,7 @@ public struct ConfiguredAgent: Sendable {
         return isConfigured ? ["cli.\(name).follow-up-not-wired"] : ["cli.follow-up-unproven"]
     }
 
+//: @use-case:cli.generic.capability_is_asserted_not_proven#provenance
     /// Provenance diagnostics: what is *asserted* by config versus *proven* against
     /// the real CLI (ADR 000 — a capability difference is reported, never papered over).
     public var provenanceDiagnostics: [String] {
@@ -86,6 +89,7 @@ public struct ConfiguredAgent: Sendable {
         return out
     }
 
+//: @use-case:end cli.generic.capability_is_asserted_not_proven#provenance
     /// Open a live session. Only a built-in adapter can serve one; a configured agent
     /// is refused rather than silently degraded to a one-shot (ADR 006).
     public func makeSession(_ ctx: DispatchContext) throws -> SessionTransport {

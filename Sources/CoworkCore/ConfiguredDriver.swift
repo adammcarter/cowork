@@ -10,11 +10,13 @@ import Foundation
 /// `{workspace}` or `{resume}` is replaced; an element that merely contains such text
 /// is left verbatim, and the process is exec'd via posix_spawn (no shell), so a task
 /// value can never inject an argument or a command.
+//: @use-case:cli.generic.wired_from_config_alone#descriptor_interpreter
 public struct ConfiguredDriver: OneShotDriver {
     public let name: String
     public let executable: URL
     public let descriptor: CliDescriptor
 
+//: @use-case:end cli.generic.wired_from_config_alone#descriptor_interpreter
     public init(name: String, executable: URL, descriptor: CliDescriptor) {
         self.name = name
         self.executable = executable
@@ -54,6 +56,7 @@ public struct ConfiguredDriver: OneShotDriver {
             stdin = (try? JSONSerialization.data(withJSONObject: message)).map { $0 + Data("\n".utf8) }
         }
 
+//: @use-case:cli.generic.env_reference_is_a_pointer_never_a_secret#env_pointer
         var extraEnvironment = descriptor.env.map { entry -> String in
             switch entry.value {
             case let .literal(v): return "\(entry.key)=\(v)"
@@ -63,6 +66,7 @@ public struct ConfiguredDriver: OneShotDriver {
                 return "\(entry.key)=\(ProcessInfo.processInfo.environment[name] ?? "")"
             }
         }
+//: @use-case:end cli.generic.env_reference_is_a_pointer_never_a_secret#env_pointer
         if descriptor.prependExeDirToPath {
             let binDir = executable.deletingLastPathComponent().path
             extraEnvironment.append("PATH=\(binDir):/usr/bin:/bin:/usr/sbin:/sbin")
@@ -181,6 +185,7 @@ public struct ConfiguredDriver: OneShotDriver {
         return nil
     }
 
+//: @use-case:cli.generic.task_value_cannot_inject_an_argument_or_a_command#whole_arg_substitution
     private func substitute(_ args: [String], task: String, workspace: String?, resume: String?) -> [String] {
         args.map { arg in
             switch arg {
@@ -191,4 +196,5 @@ public struct ConfiguredDriver: OneShotDriver {
             }
         }
     }
+//: @use-case:end cli.generic.task_value_cannot_inject_an_argument_or_a_command#whole_arg_substitution
 }
