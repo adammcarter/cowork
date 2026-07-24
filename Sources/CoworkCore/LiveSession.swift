@@ -7,7 +7,7 @@ import Foundation
 /// one reads a pipe, the other re-POSTs a list — but the supervisor should not
 /// care which. It parks, sends, finishes; the rest is the session's business.
 ///
-/// A closure bundle rather than a protocol on purpose: `CliSession.turn` is
+/// A closure bundle rather than a protocol on purpose: `SessionTransport.turn` is
 /// synchronous and `EndpointSession.turn` is `async`, and wrapping each into one
 /// `async` shape here is simpler and less invasive than forcing both behind a
 /// protocol with a single signature.

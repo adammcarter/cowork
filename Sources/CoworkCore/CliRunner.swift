@@ -63,7 +63,7 @@ public struct CliRunner: Sendable {
         defer { isolation?.remove() }
 //: @use-case:end cli.generic.isolation_dir_never_outlives_the_worker#isolation_lifecycle
 
-        let environment = Self.environment(
+        let environment = ChildEnvironment.allowlist(
             extra: invocation.extraEnvironment + (isolation.map { [$0.environmentEntry] } ?? []))
 
         let result = spawn.run(executable: executable, arguments: invocation.arguments,
@@ -79,14 +79,22 @@ public struct CliRunner: Sendable {
         return driver.parse(output: result.output, exitStatus: result.exitStatus)
     }
 
-    /// A sanitized environment is an allowlist, not a denylist (ADR 003): the child
-    /// inherits nothing it was not explicitly given. Each entry is here because the
-    /// agent provably needs it — USER is what lets an agent reach its Keychain
-    /// credentials, without which it reports "Not logged in". Lineage (ADR 001) is
-    /// derived, not asserted: a worker that itself calls cowork is attributed
-    /// automatically because it inherits these. A row's `extraEnvironment` overrides
-    /// an entry by key, which is how an agent gets its bin dir at the head of PATH.
-    static func environment(extra: [String]) -> [String] {
+}
+
+/// The environment every cowork-spawned worker gets, one-shot or live session.
+///
+/// A sanitized environment is an allowlist, not a denylist (ADR 003): the child
+/// inherits nothing it was not explicitly given. Each entry is here because the
+/// agent provably needs it — USER is what lets an agent reach its Keychain
+/// credentials, without which it reports "Not logged in". Lineage (ADR 001) is
+/// derived, not asserted: a worker that itself calls cowork is attributed
+/// automatically because it inherits these, which is why the two spawn paths must
+/// share this one definition rather than each keep its own idea of "the basics".
+/// An `extra` entry overrides an allowlist entry by key, which is how an agent gets
+/// its bin dir at the head of PATH.
+public enum ChildEnvironment {
+    /// `KEY=VALUE` form, for the posix_spawn envp of a one-shot.
+    public static func allowlist(extra: [String]) -> [String] {
         var environment = [
             "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
             "HOME=\(NSHomeDirectory())",
@@ -108,5 +116,16 @@ public struct CliRunner: Sendable {
             }
         }
         return environment
+    }
+
+    /// Keyed form, for the session spawn's dictionary-shaped API. Same content.
+    public static func dictionary(extra: [String]) -> [String: String] {
+        var out: [String: String] = [:]
+        for entry in allowlist(extra: extra) {
+            let parts = entry.split(separator: "=", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            out[String(parts[0])] = String(parts[1])
+        }
+        return out
     }
 }

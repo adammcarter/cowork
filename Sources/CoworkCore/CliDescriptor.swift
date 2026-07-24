@@ -165,3 +165,30 @@ public struct CliDescriptor: Sendable, Equatable {
         self.cpuSeconds = cpuSeconds
     }
 }
+
+extension CliDescriptor {
+    /// The env entries this row contributes to its worker, in `KEY=VALUE` form.
+    ///
+    /// Shared by the one-shot and the session spawn deliberately: a row that needs
+    /// its bin dir on PATH needs it whichever way the binary is launched, and an
+    /// `env:NAME` pointer has to mean the same thing on both. Two copies of this
+    /// would let a CLI work one-shot and mysteriously fail in a live session.
+    public func environmentEntries(executable: URL) -> [String] {
+//: @use-case:cli.generic.env_reference_is_a_pointer_never_a_secret#env_pointer
+        var entries = env.map { entry -> String in
+            switch entry.value {
+            case let .literal(v): return "\(entry.key)=\(v)"
+            case let .reference(name):
+                // A pointer, never a secret: resolve from cowork's own environment at
+                // dispatch. An unset reference becomes empty rather than leaking the name.
+                return "\(entry.key)=\(ProcessInfo.processInfo.environment[name] ?? "")"
+            }
+        }
+//: @use-case:end cli.generic.env_reference_is_a_pointer_never_a_secret#env_pointer
+        if prependExeDirToPath {
+            let binDir = executable.deletingLastPathComponent().path
+            entries.append("PATH=\(binDir):/usr/bin:/bin:/usr/sbin:/sbin")
+        }
+        return entries
+    }
+}

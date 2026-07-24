@@ -521,7 +521,7 @@ use_cases:
     tags: [adr-007, adr-005, generic, credentials]
     source_refs:
       - kind: file
-        path: Sources/CoworkCore/ConfiguredDriver.swift
+        path: Sources/CoworkCore/CliDescriptor.swift
     actor: A user wiring a CLI that needs an API key
     intent: Keep the key out of the config file while still reaching the worker.
     preconditions:

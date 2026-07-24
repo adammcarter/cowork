@@ -61,7 +61,7 @@ struct StreamJsonWireTests {
     }
 
     /// The bug found in the wild: subtype "success" AND is_error true is a failure,
-    /// and the driver's parse defers that judgement to Verdict.cli.
+    /// and the driver's parse defers that judgement to Verdict.declaredResult.
     @Test("parse reports a declared error as failed, via Verdict.declaredResult")
     func parseDeclaredError() {
         let stream = #"{"type":"result","subtype":"success","is_error":true,"result":"x"}"#

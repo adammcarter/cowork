@@ -97,17 +97,12 @@ public struct ConfiguredAgent: Sendable {
             IsolationHandle.make(variable: $0.variable, seed: $0.seed)
         }
         do {
-            var environment = Self.baseEnvironment
-            for entry in descriptor.env {
-                switch entry.value {
-                case let .literal(v): environment[entry.key] = v
-                case let .reference(n): environment[entry.key] = ProcessInfo.processInfo.environment[n] ?? ""
-                }
-            }
-            if let isolation {
-                let parts = isolation.environmentEntry.split(separator: "=", maxSplits: 1)
-                if parts.count == 2 { environment[String(parts[0])] = String(parts[1]) }
-            }
+            // The same environment a one-shot of this row would get: the ADR 003
+            // allowlist plus derived lineage (ADR 001), then the row's own entries and
+            // PATH prepend, then the isolation dir last so it wins its key.
+            let environment = ChildEnvironment.dictionary(
+                extra: descriptor.environmentEntries(executable: executable)
+                    + (isolation.map { [$0.environmentEntry] } ?? []))
 
             var arguments = spec.arguments
             if let resume = ctx.resume, !spec.resumeArguments.isEmpty {
@@ -131,13 +126,6 @@ public struct ConfiguredAgent: Sendable {
             isolation?.remove()
             throw error
         }
-    }
-
-    private static var baseEnvironment: [String: String] {
-        ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-         "HOME": NSHomeDirectory(),
-         "USER": NSUserName(),
-         "LANG": "en_US.UTF-8"]
     }
 }
 

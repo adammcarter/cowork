@@ -124,6 +124,12 @@ queued -> running -> awaiting_input ⇄ running -> succeeded | failed
 `awaiting_input` is a real state, not a variant of success: an interactive
 worker has declared a turn's outcome and remains alive awaiting a `send`.
 
+> **Extended by [ADR 008](008-let-a-worker-declare-that-it-stopped-early.md).**
+> The terminal vocabulary gains `needs_input` and `blocked`, for a worker that has
+> **exited** having declared that it stopped early — distinct from `awaiting_input`,
+> where the worker is still alive. Both are declared by the worker and never inferred,
+> so a dispatch with no such declaration keeps exactly the states above.
+
 ### Rules binding every tool
 
 1. **The worker's declared outcome is the verdict.** Terminal state derives from

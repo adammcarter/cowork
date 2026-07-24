@@ -54,21 +54,7 @@ public struct ConfiguredDriver: OneShotDriver {
             stdin = (try? JSONSerialization.data(withJSONObject: message)).map { $0 + Data("\n".utf8) }
         }
 
-//: @use-case:cli.generic.env_reference_is_a_pointer_never_a_secret#env_pointer
-        var extraEnvironment = descriptor.env.map { entry -> String in
-            switch entry.value {
-            case let .literal(v): return "\(entry.key)=\(v)"
-            case let .reference(name):
-                // A pointer, never a secret: resolve from cowork's own environment at
-                // dispatch. An unset reference becomes empty rather than leaking the name.
-                return "\(entry.key)=\(ProcessInfo.processInfo.environment[name] ?? "")"
-            }
-        }
-//: @use-case:end cli.generic.env_reference_is_a_pointer_never_a_secret#env_pointer
-        if descriptor.prependExeDirToPath {
-            let binDir = executable.deletingLastPathComponent().path
-            extraEnvironment.append("PATH=\(binDir):/usr/bin:/bin:/usr/sbin:/sbin")
-        }
+        let extraEnvironment = descriptor.environmentEntries(executable: executable)
 
         return Invocation(arguments: arguments, stdin: stdin, extraEnvironment: extraEnvironment)
     }
