@@ -112,8 +112,19 @@ public enum Verdict {
     /// a clean exit is a success, a nonzero exit is a failure that records the code.
     public static func codex(exitCode: Int32)
         -> (state: DispatchRecord.State, diagnostics: [String]) {
+        exitOnly(cliName: "codex", exitCode: exitCode)
+    }
+
+    /// The exit-code-only rule, generalised so a config-wired CLI gets its own label
+    /// (`cli.<name>.exit`) while codex stays byte-identical (`cli.codex.exit`). This
+    /// parameterises the diagnostic LABEL only, never the decision. It is honest ONLY
+    /// for a CLI that emits no machine declaration cowork reads — hence a generic row
+    /// may select it only with raw output, and it is marked verdict-unverified in
+    /// capabilities until a performed journey proves the failure mode surfaces (ADR 000).
+    public static func exitOnly(cliName: String, exitCode: Int32)
+        -> (state: DispatchRecord.State, diagnostics: [String]) {
         if exitCode == 0 { return (.succeeded, []) }
-        return (.failed, ["cli.codex.exit", "exit=\(exitCode)"])
+        return (.failed, ["cli.\(cliName).exit", "exit=\(exitCode)"])
     }
 
     /// Grok ACP (Agent Client Protocol) interactive stopReason.
