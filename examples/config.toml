@@ -110,8 +110,19 @@ verdict = "exit_code"
   [cli.opencode.env]
   OPENCODE_MODEL = "ollama/qwen2.5-coder:7b"
 
-  # Isolation with no `seed`: a fresh empty 0700 config dir per dispatch, removed
-  # on every exit path. The point here is the opposite of codex's — not to carry a
-  # credential in, but to keep the user's real settings out of a worker's reach.
+  # Isolation, seeded: a fresh 0700 config dir per dispatch, removed on every exit
+  # path. The point here is the opposite of codex's — not to carry a credential in,
+  # but to keep the user's real settings out of a worker's reach, and to hand it a
+  # known-good config instead of whatever it would otherwise inherit.
+  #
+  # Seeding is not optional when the agent fronts a SMALL-WINDOW model. An agent
+  # left to its own defaults may never compact, and a long task then dies on the
+  # model server's hard limit with the work half done. `examples/opencode-seed/`
+  # is a worked config with the measurements behind each value — cowork does not
+  # read it, it only copies the directory in and deletes it afterwards.
+  #
+  # Drop `seed` to get an empty dir instead: correct when the agent's defaults are
+  # already right for the model behind it.
   [cli.opencode.isolate]
-  var = "XDG_CONFIG_HOME"
+  var  = "XDG_CONFIG_HOME"
+  seed = "~/.cowork/examples/opencode-seed"

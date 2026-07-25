@@ -164,10 +164,13 @@ struct ExampleConfigGoldenTests {
         #expect(try ExampleConfig.descriptor("claude").isolate == nil,
                 "no row gets isolation it did not ask for")
 
-        // The other half of the same knob: isolation without a seed keeps the user's
-        // real config OUT of the worker, rather than carrying a credential in.
-        let seedless = try #require(try ExampleConfig.descriptor("opencode").isolate)
-        #expect(seedless.variable == "XDG_CONFIG_HOME")
-        #expect(seedless.seed == nil)
+        // The same knob, carrying settings rather than a secret: a worker gets a
+        // known-good config of the user's choosing instead of inheriting whatever
+        // the host happens to have. Both are the user's explicit instruction —
+        // cowork copies what the row names and nothing else.
+        let settings = try #require(try ExampleConfig.descriptor("opencode").isolate)
+        #expect(settings.variable == "XDG_CONFIG_HOME")
+        #expect(settings.seed?.lastPathComponent == "opencode-seed",
+                "a small-window model needs its agent configured, not defaulted")
     }
 }

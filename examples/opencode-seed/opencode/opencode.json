@@ -1,0 +1,80 @@
+{
+  // An example seed for a CLI agent's own config, copied into a throwaway config
+  // dir per dispatch by `[cli.<name>.isolate] seed = "..."`.
+  //
+  // Cowork does not read or write this file — it belongs to the agent, not to
+  // cowork, and cowork knows nothing about its contents. It is shipped as an
+  // example because the values below are the difference between a small local
+  // model finishing a long task and dying halfway through it, and they are not
+  // discoverable without measuring a real run.
+  //
+  // Everything here is THIS agent's schema. A different agent seeds a different
+  // file; the only thing cowork contributes is copying the directory in and
+  // deleting it afterwards.
+  "$schema": "https://opencode.ai/config.json",
+
+  "provider": {
+    "local": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Local model server",
+      "options": {
+        "baseURL": "http://192.168.64.1:8062/v1",
+        "apiKey": "..."
+      },
+      "models": {
+        "your-model-id": {
+          "name": "Your model",
+
+          // THE LOAD-BEARING PART, for a model with a small window.
+          //
+          // `context` is the model's real window. `output` is the reply budget.
+          // `input` looks redundant beside `context` — it is not: this agent's
+          // compaction threshold is
+          //     input ? (input - reserved) : (context - output)
+          // so with `input` ABSENT the `reserved` setting below is read and then
+          // discarded, the threshold silently becomes `context - output`, and a
+          // long run walks straight into the server's hard limit. Measured on a
+          // 60k local model: without `input`, compaction never fired once across
+          // five runs; with it, it fired reliably at the intended threshold.
+          //
+          // Set all three, and set them to the truth. A model server that reports
+          // its own window (`GET /v1/models` -> `max_model_len`) is the source.
+          "limit": { "context": 60000, "input": 60000, "output": 4000 }
+        }
+      }
+    }
+  },
+  "model": "local/your-model-id",
+
+  // Compaction must leave enough room for the LARGEST single step, because the
+  // overflow check is reactive: it compares the last observed usage, so nothing
+  // inspects the next request before it is sent. One oversized tool result can
+  // therefore leap from "comfortably under" to "over the hard limit" in a single
+  // turn — which is exactly how the runs above died.
+  //
+  // reserved = 16000 puts the threshold at 44000 on a 60k window, leaving 16k of
+  // headroom against a worst case of (capped tool output + reply).
+  //
+  // Do NOT over-tighten. If the headroom is smaller than a single tool result the
+  // agent compacts, re-reads the same file, and compacts again, forever.
+  "compaction": { "auto": true, "prune": true, "tail_turns": 2, "reserved": 16000 },
+
+  // The other half of the same fix: bound what one tool call can inject. Defaults
+  // are generous (tens of thousands of tokens), which is fine on a large window
+  // and fatal on a small one. A 24000-byte cap is roughly 6k tokens.
+  "tool_output": { "max_lines": 600, "max_bytes": 24000 },
+
+  // Re-sent on every turn, so it survives compaction. Durable task rules belong
+  // here rather than in the dispatched task, which does not.
+  //
+  // Note the trade-off: this occupies window on EVERY request, so on a small
+  // model it is headroom you are choosing to spend. Keep it short.
+  "instructions": ["AGENTS.md"],
+
+  // The worker is already contained by cowork (ADR 003) — its own process group,
+  // a CPU limit, an allowlist environment, and a workspace it cannot escape — so
+  // a second approval prompt inside that box only deadlocks a headless run.
+  "permission": { "edit": "allow", "bash": "allow", "webfetch": "allow" },
+
+  "autoupdate": false
+}
