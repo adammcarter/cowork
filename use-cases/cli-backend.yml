@@ -204,51 +204,6 @@ use_cases:
     approval_policy:
       mode: none
 
-  - id: cli.generic.builtin_wire_is_sealed_from_config
-    title: Config cannot re-author a built-in dialect's wire
-    lifecycle: active
-    value_tier: core
-    journey_role: negative
-    usage_frequency: occasional
-    tags: [adr-007, security, generic, config]
-    source_refs:
-      - kind: file
-        path: Sources/CoworkCore/Config.swift
-    actor: A user editing their own config
-    intent: Trust that `claude` means claude, however the config file is written.
-    preconditions:
-      - A config declaring a built-in CLI row that also carries a descriptor field.
-      - A global config declaring a generic row whose executable is a built-in's name.
-    trigger: Cowork starts.
-    scenarios:
-      - id: cli.generic.builtin_wire_is_sealed_from_config.main
-        kind: steps
-        steps:
-          - Declare `[cli.claude]` carrying a descriptor field such as args.
-          - Separately, declare a generic row whose executable is named `claude`.
-          - Start cowork against each.
-    observable_outcomes:
-      - Both are refused at load with `config.builtin-immutable`, naming the cli.
-      - A sealed dialect's argv can never be rewritten from a file — the built-in wire is a constant in reviewed Swift.
-      - The refusal happens before any process is spawned.
-    host_applicability:
-      - host_surface: claude.cli
-        supported: true
-      - host_surface: codex.cli
-        supported: true
-      - host_surface: copilot.cli
-        supported: true
-      - host_surface: opencode.cli
-        supported: true
-    verification_policy:
-      mode: requirements
-      requirements:
-        - evidence_kind: live_demo
-          required_verifiers: [journey]
-          minimum_count: 1
-    approval_policy:
-      mode: none
-
   - id: cli.generic.execution_sensitive_env_keys_are_refused
     title: A descriptor may move bytes into a worker's environment, but not rewrite how it executes
     lifecycle: active

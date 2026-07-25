@@ -9,3 +9,4 @@ __pycache__/
 
 # uc tool local verification state (regenerated via uc bind/verify)
 .use-cases/
+.DS_Store

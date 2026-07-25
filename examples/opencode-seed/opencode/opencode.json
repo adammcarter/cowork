@@ -18,7 +18,7 @@
       "npm": "@ai-sdk/openai-compatible",
       "name": "Local model server",
       "options": {
-        "baseURL": "http://192.168.64.1:8062/v1",
+        "baseURL": "http://127.0.0.1:PORT/v1",
         "apiKey": "..."
       },
       "models": {

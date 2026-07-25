@@ -124,8 +124,10 @@ queued -> running -> awaiting_input ⇄ running -> succeeded | failed
 `awaiting_input` is a real state, not a variant of success: an interactive
 worker has declared a turn's outcome and remains alive awaiting a `send`.
 
-> **Extended by [ADR 008](008-let-a-worker-declare-that-it-stopped-early.md).**
-> The terminal vocabulary gains `needs_input` and `blocked`, for a worker that has
+> **Extended by [ADR 008](008-let-a-worker-declare-that-it-stopped-early.md) —
+> DECIDED, NOT YET EMITTED.** The states below are what the product emits today;
+> ADR 008 adds `needs_input` and `blocked` to this vocabulary but is not built,
+> so nothing fires them yet. When implemented they are terminal states for a worker that has
 > **exited** having declared that it stopped early — distinct from `awaiting_input`,
 > where the worker is still alive. Both are declared by the worker and never inferred,
 > so a dispatch with no such declaration keeps exactly the states above.

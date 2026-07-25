@@ -1392,7 +1392,7 @@ def _():
     with Fixture(project_config=hostile) as f:
         code, err = f.refusal()
         require(code == 78, f"a config refusal must exit EX_CONFIG(78); got {code}: {err[:300]}")
-        require("config.project-generic-cli-refused" in err,
+        require("config.project-cli-refused" in err,
                 f"the refusal must name the rule; got {err[:400]}")
         require("evil" in err, f"the refusal must name the cli; got {err[:400]}")
 
@@ -1403,29 +1403,8 @@ def _():
         rows = c.ok("capabilities", backend=clis[0], _timeout=120)
         require("cli" in rows, f"a project selecting a built-in must still work; got {rows}")
     print(f"a project config authoring a generic CLI is refused before anything runs "
-          f"(exit 78, config.project-generic-cli-refused); selecting a built-in "
+          f"(exit 78, config.project-cli-refused); selecting a built-in "
           f"({clis[0]}) still works")
-
-
-@journey("cli.generic.builtin_wire_is_sealed_from_config")
-def _():
-    # Half one: a built-in row carrying a descriptor field, from a project config.
-    with Fixture(project_config='[cli.claude]\nexecutable = "~/.local/bin/claude"\n'
-                                'args = ["--do-whatever"]\n') as f:
-        code, err = f.refusal()
-        require(code == 78, f"expected EX_CONFIG(78); got {code}: {err[:300]}")
-        require("config.builtin-immutable" in err, f"got {err[:400]}")
-        require("claude" in err, f"the refusal must name the cli; got {err[:400]}")
-
-    # Half two: a generic row whose executable IS a built-in's name, from a global
-    # config — the other way to try to re-author a sealed wire.
-    disguised = generic_global(name="mine", executable="/opt/pretend/claude")
-    with Fixture(project_config='', global_config=disguised) as f:
-        code, err = f.refusal()
-        require(code == 78, f"expected EX_CONFIG(78); got {code}: {err[:300]}")
-        require("config.builtin-immutable" in err, f"got {err[:400]}")
-    print("a built-in's wire cannot be rewritten from config, from either direction "
-          "(descriptor field on a built-in row; generic row pointed at a built-in name)")
 
 
 @journey("cli.generic.execution_sensitive_env_keys_are_refused")
@@ -1506,10 +1485,10 @@ def _():
                                  'continuation_field = "sid"', 'resume_args = ["-r", "{resume}"]'])
     with Fixture(project_config='', global_config=wired) as f, f.server() as c:
         row = c.ok("capabilities", backend="assertive", _timeout=90)
-        require("cli.assertive.verdict-unverified" in row,
+        require("cli.verdict-unverified" in row,
                 f"exit_code is honest only if this CLI's failures really exit nonzero, "
                 f"which is not statically knowable — it must be reported as unverified; got {row}")
-        require("cli.assertive.follow-up-configured-unverified" in row,
+        require("cli.follow-up-unverified" in row,
                 f"follow-up wired from config is asserted, not proven; got {row}")
         require("follow_up=true" in row,
                 f"the mechanism IS wired at both ends, so the capability is real; got {row}")
@@ -1517,18 +1496,20 @@ def _():
     # A row with no follow-up mechanism cannot claim one, and says why.
     with Fixture(project_config='', global_config=generic_global()) as f, f.server() as c:
         row = c.ok("capabilities", backend="stubagent", _timeout=90)
-        require("follow_up=false" in row and "cli.stubagent.follow-up-not-wired" in row,
+        require("follow_up=false" in row and "cli.follow-up-not-wired" in row,
                 f"a row with no handle and no resume arg must not claim follow-up; got {row}")
 
-    # A built-in carries neither provenance diagnostic: its wire was proven.
+    # There is no longer any "proven" wire to compare against: every CLI row is
+    # config-authored, so ADR 007 clause 7 marks them all asserted-not-proven. The
+    # honest check is that the marker is PRESENT, not that some row escapes it.
     clis = installed_clis()
-    require(clis, "no built-in CLI is installed to compare against")
+    require(clis, "no CLI is installed to check provenance against")
     with Fixture(project_config=CLI_PROJECT_CONFIG) as f, f.server() as c:
         for name in clis:
             row = c.ok("capabilities", backend=name, _timeout=120)
-            require("-unverified" not in row,
-                    f"a built-in's capability was proven against the real CLI and must carry "
-                    f"no *-unverified provenance diagnostic; {name} got {row}")
+            require("-unverified" in row,
+                    f"a config-authored wire is asserted, never proven, so it must carry "
+                    f"an *-unverified provenance diagnostic; {name} got {row}")
     print("configured => asserted (verdict-unverified, follow-up-configured-unverified); "
           f"built-in ({', '.join(clis)}) => proven, no such diagnostic")
 

@@ -2,7 +2,12 @@
 
 ## Status
 
-Accepted - 2026-07-24
+Accepted (design only — NOT IMPLEMENTED) - 2026-07-24
+
+> The decision below is agreed; the code does not yet emit these states.
+> `DispatchRecord.State` is still `queued, running, awaiting_input, succeeded,
+> failed, cancelled, timed_out`. An orchestrator must not route on
+> `needs_input` or `blocked` until this is built — they will never fire.
 
 Depends on: [ADR 000](000-define-cowork-purpose-as-truthful-dispatch.md),
 [ADR 001](001-fix-the-tool-list-as-cowork-public-contract.md),
